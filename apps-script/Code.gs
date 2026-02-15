@@ -157,6 +157,7 @@ function doPost(e) {
       case 'register_students': result = handleRegisterStudents(payload); break;
       case 'get_assignments_list': result = handleGetAssignmentsList(payload); break;
       case 'reset_password': result = handleResetPassword(payload); break;
+      case 'remove_student': result = handleRemoveStudent(payload); break;
       case 'get_students_list': result = handleGetStudentsList(payload); break;
       case 'change_admin_password': result = handleChangeAdminPassword(payload); break;
 
@@ -195,9 +196,8 @@ function handleCheckStudent(payload) {
       return {
         success: true,
         exists: true,
-        hasPassword: data[i][4] !== '' && data[i][4] !== null && data[i][4] !== undefined,
-        name: data[i][1],
-        department: data[i][2]
+        hasPassword: data[i][2] !== '' && data[i][2] !== null && data[i][2] !== undefined,
+        name: data[i][1]
       };
     }
   }
@@ -217,17 +217,15 @@ function handleRegisterPassword(payload) {
 
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === studentId) {
-      if (data[i][4] !== '' && data[i][4] !== null && data[i][4] !== undefined) {
+      if (data[i][2] !== '' && data[i][2] !== null && data[i][2] !== undefined) {
         return { success: false, error: '이미 비밀번호가 설정되어 있습니다.' };
       }
       const hashedPw = hashPassword(password);
-      sheet.getRange(i + 1, 5).setValue(hashedPw);
+      sheet.getRange(i + 1, 3).setValue(hashedPw);
       resetLoginAttempts(studentId);
       return {
         success: true,
-        name: data[i][1],
-        department: data[i][2],
-        email: data[i][3]
+        name: data[i][1]
       };
     }
   }
@@ -249,7 +247,7 @@ function handleLogin(payload) {
 
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === studentId) {
-      const storedHash = data[i][4];
+      const storedHash = data[i][2];
       if (!storedHash || storedHash === '') {
         return { success: false, error: '비밀번호가 설정되지 않았습니다. 먼저 비밀번호를 설정해주세요.' };
       }
@@ -259,9 +257,7 @@ function handleLogin(payload) {
         return {
           success: true,
           studentId: studentId,
-          name: data[i][1],
-          department: data[i][2],
-          email: data[i][3]
+          name: data[i][1]
         };
       } else {
         const failResult = recordLoginFailure(studentId);
@@ -700,7 +696,6 @@ function handleStartEvaluation(payload) {
         validStudents.push({
           studentId: String(submitData[i][2]).trim(),
           name: submitData[i][3],
-          department: submitData[i][4],
           submissionLink: submitData[i][5],
           timestamp: submitData[i][0]
         });
@@ -1034,8 +1029,8 @@ function handleRegisterStudents(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
 
-  const students = payload.students; // [{studentId, name, department, email}]
-  const sheet = getOrCreateSheet('학생_마스터', ['학번', '이름', '학과', '이메일', '비밀번호']);
+  const students = payload.students; // [{studentId, name}]
+  const sheet = getOrCreateSheet('학생_마스터', ['학번', '이름', '비밀번호']);
 
   const existing = {};
   const data = sheet.getDataRange().getValues();
@@ -1053,7 +1048,7 @@ function handleRegisterStudents(payload) {
       skippedCount++;
       continue;
     }
-    sheet.appendRow([sid, s.name, s.department, s.email, '']);
+    sheet.appendRow([sid, s.name, '']);
     existing[sid] = true;
     addedCount++;
   }
@@ -1102,12 +1097,35 @@ function handleResetPassword(payload) {
 
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === studentId) {
-      sheet.getRange(i + 1, 5).setValue('');
+      sheet.getRange(i + 1, 3).setValue('');
       resetLoginAttempts(studentId);
       return { success: true, message: studentId + ' 비밀번호 초기화 완료.' };
     }
   }
   return { success: false, error: '학생을 찾을 수 없습니다.' };
+}
+
+function handleRemoveStudent(payload) {
+  const adminAuth = verifyAdmin(payload.adminPassword);
+  if (!adminAuth.success) return adminAuth;
+
+  const studentId = String(payload.studentId).trim();
+  if (!studentId) {
+    return { success: false, error: '학번이 필요합니다.' };
+  }
+
+  const sheet = getSheet('학생_마스터');
+  if (!sheet) return { success: false, error: '학생_마스터 시트를 찾을 수 없습니다.' };
+
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === studentId) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: studentId + ' 학생이 제거되었습니다.' };
+    }
+  }
+  return { success: false, error: '등록되지 않은 학번입니다.' };
 }
 
 function handleGetStudentsList(payload) {
@@ -1123,9 +1141,7 @@ function handleGetStudentsList(payload) {
     students.push({
       studentId: String(data[i][0]),
       name: data[i][1],
-      department: data[i][2],
-      email: data[i][3],
-      hasPassword: data[i][4] !== '' && data[i][4] !== null && data[i][4] !== undefined
+      hasPassword: data[i][2] !== '' && data[i][2] !== null && data[i][2] !== undefined
     });
   }
   return { success: true, students: students };
@@ -1324,7 +1340,7 @@ function initializeSystem() {
   }
 
   // 학생_마스터 시트
-  getOrCreateSheet('학생_마스터', ['학번', '이름', '학과', '이메일', '비밀번호']);
+  getOrCreateSheet('학생_마스터', ['학번', '이름', '비밀번호']);
 
   // 과제_목록 시트
   getOrCreateSheet('과제_목록', [

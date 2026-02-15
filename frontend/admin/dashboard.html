@@ -68,10 +68,10 @@
       <div class="card">
         <div class="card-title">학생 일괄 등록</div>
         <div class="form-group">
-          <label for="students-csv">학생 목록 (탭 구분: 학번, 이름, 학과, 이메일)</label>
-          <textarea id="students-csv" rows="6" placeholder="20210001&#9;김민수&#9;소프트웨어학부&#9;minsu.kim@kookmin.ac.kr
-20210002&#9;이서연&#9;소프트웨어학부&#9;seoyeon.lee@kookmin.ac.kr"></textarea>
-          <div class="hint">엑셀에서 복사-붙여넣기 하면 탭으로 구분됩니다.</div>
+          <label for="students-csv">학생 목록 (탭 구분: 학번, 이름)</label>
+          <textarea id="students-csv" rows="6" placeholder="20210001&#9;김민수
+20210002&#9;이서연"></textarea>
+          <div class="hint">엑셀에서 복사-붙여넣기 하면 탭으로 구분됩니다. (학번, 이름 2열)</div>
         </div>
         <button class="btn btn-primary" onclick="registerStudents()" id="btn-register">등록</button>
       </div>
@@ -478,16 +478,14 @@
 
       const students = csv.split('\n').map(line => {
         const parts = line.split('\t');
-        if (parts.length < 4) return null;
+        if (parts.length < 2) return null;
         return {
           studentId: parts[0].trim(),
-          name: parts[1].trim(),
-          department: parts[2].trim(),
-          email: parts[3].trim()
+          name: parts[1].trim()
         };
-      }).filter(s => s !== null);
+      }).filter(s => s !== null && s.studentId && s.name);
 
-      if (students.length === 0) { showAlert('유효한 학생 데이터가 없습니다. 탭으로 구분해주세요.', 'error'); return; }
+      if (students.length === 0) { showAlert('유효한 학생 데이터가 없습니다. (학번, 이름을 탭으로 구분)', 'error'); return; }
 
       const btn = document.getElementById('btn-register');
       btn.disabled = true; btn.textContent = '등록 중...';
@@ -520,15 +518,16 @@
         }
 
         let html = `<div class="table-wrapper"><table>
-          <thead><tr><th>학번</th><th>이름</th><th>학과</th><th>이메일</th><th>비밀번호</th><th>관리</th></tr></thead><tbody>`;
+          <thead><tr><th>학번</th><th>이름</th><th>비밀번호</th><th>관리</th></tr></thead><tbody>`;
         r.students.forEach(s => {
           html += `<tr>
             <td>${escapeHtml(s.studentId)}</td>
             <td>${escapeHtml(s.name)}</td>
-            <td>${escapeHtml(s.department)}</td>
-            <td style="font-size:0.8125rem;">${escapeHtml(s.email)}</td>
             <td>${s.hasPassword ? '✅ 설정됨' : '❌ 미설정'}</td>
-            <td>${s.hasPassword ? `<button class="btn btn-danger btn-sm" onclick="resetPw('${s.studentId}')">PW 초기화</button>` : '-'}</td>
+            <td style="display:flex;gap:4px;flex-wrap:wrap;">
+              ${s.hasPassword ? `<button class="btn btn-warning btn-sm" onclick="resetPw('${s.studentId}')">PW 초기화</button>` : ''}
+              <button class="btn btn-danger btn-sm" onclick="removeStudent('${s.studentId}','${escapeHtml(s.name)}')">삭제</button>
+            </td>
           </tr>`;
         });
         html += `</tbody></table></div><p style="font-size:0.8125rem;color:var(--gray-500);margin-top:8px;">총 ${r.students.length}명</p>`;
@@ -543,6 +542,17 @@
       if (!confirm(`${studentId} 학생의 비밀번호를 초기화하시겠습니까?`)) return;
       try {
         const r = await API.resetPassword(adminPw, studentId);
+        if (r.success) { showAlert(r.message, 'success'); loadStudents(); }
+        else showAlert(r.error, 'error');
+      } catch (err) {
+        showAlert('오류: ' + err.message, 'error');
+      }
+    }
+
+    async function removeStudent(studentId, name) {
+      if (!confirm(`${name}(${studentId}) 학생을 이 과목에서 제거하시겠습니까?\n\n※ 기존 제출/평가 데이터는 유지됩니다.`)) return;
+      try {
+        const r = await API.removeStudent(adminPw, studentId);
         if (r.success) { showAlert(r.message, 'success'); loadStudents(); }
         else showAlert(r.error, 'error');
       } catch (err) {

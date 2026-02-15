@@ -131,11 +131,16 @@ const API = (() => {
     return call({ action: 'get_students_list', adminPassword });
   }
 
+  function removeStudent(adminPassword, studentId) {
+    return call({ action: 'remove_student', adminPassword, studentId });
+  }
+
   return {
     checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
     getMyAssignments, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
     submitProfessorEval, finalizeAssignment, getAllResults,
-    registerStudents, getAssignmentsList, resetPassword, getStudentsList
+    registerStudents, getAssignmentsList, resetPassword, getStudentsList,
+    removeStudent
   };
 })();
