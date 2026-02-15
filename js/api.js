@@ -135,6 +135,10 @@ const API = (() => {
     return call({ action: 'remove_student', adminPassword, studentId });
   }
 
+  function createCourse(adminPassword, courseName, year, semester) {
+    return call({ action: 'create_course', adminPassword, courseName, year, semester });
+  }
+
   function getCoursesList(adminPassword) {
     return call({ action: 'get_courses_list', adminPassword });
   }
@@ -153,6 +157,6 @@ const API = (() => {
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
     submitProfessorEval, finalizeAssignment, getAllResults,
     registerStudents, getAssignmentsList, resetPassword, getStudentsList,
-    removeStudent, getCoursesList, deleteCourse, restoreCourse
+    removeStudent, createCourse, getCoursesList, deleteCourse, restoreCourse
   };
 })();
