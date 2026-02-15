@@ -62,6 +62,10 @@ const API = (() => {
     return call({ action: 'admin_login', password });
   }
 
+  function changeAdminPassword(currentPassword, newPassword) {
+    return call({ action: 'change_admin_password', currentPassword, newPassword });
+  }
+
   // ─── 학생용 ───
   function getMyAssignments(studentId, password) {
     return call({ action: 'get_my_assignments', studentId, password });
@@ -128,7 +132,7 @@ const API = (() => {
   }
 
   return {
-    checkStudent, registerPassword, login, adminLogin,
+    checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
     getMyAssignments, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
     submitProfessorEval, finalizeAssignment, getAllResults,

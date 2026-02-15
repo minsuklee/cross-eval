@@ -158,6 +158,7 @@ function doPost(e) {
       case 'get_assignments_list': result = handleGetAssignmentsList(payload); break;
       case 'reset_password': result = handleResetPassword(payload); break;
       case 'get_students_list': result = handleGetStudentsList(payload); break;
+      case 'change_admin_password': result = handleChangeAdminPassword(payload); break;
 
       default:
         result = { success: false, error: '알 수 없는 action: ' + action };
@@ -278,22 +279,41 @@ function handleAdminLogin(payload) {
   const password = payload.password;
   const storedHash = getConfig('admin_password');
 
-  if (!storedHash) {
-    return { success: false, error: '관리자 비밀번호가 설정되지 않았습니다.' };
-  }
-
   // 관리자 잠금 확인
   const lockStatus = checkLoginLock('admin');
   if (lockStatus.locked) {
     return { success: false, error: lockStatus.remainingMinutes + '분 후에 다시 시도해주세요.', locked: true };
   }
 
+  // ── v2.0: 초기 비밀번호 로직 ──
+  // admin_password가 빈 값(미설정)이면 초기 비밀번호 'minsuk615'로 로그인 허용
+  if (!storedHash || storedHash === '') {
+    if (password === 'minsuk615') {
+      resetLoginAttempts('admin');
+      return {
+        success: true,
+        role: 'admin',
+        needPasswordChange: true,  // 프론트엔드에서 비밀번호 변경 강제
+        courseName: getConfig('course_name'),
+        semester: getConfig('semester')
+      };
+    } else {
+      const failResult = recordLoginFailure('admin');
+      if (failResult.locked) {
+        return { success: false, error: LOCKOUT_MINUTES + '분 후에 다시 시도해주세요.', locked: true };
+      }
+      return { success: false, error: '비밀번호가 일치하지 않습니다. (' + (MAX_LOGIN_ATTEMPTS - failResult.attempts) + '회 남음)' };
+    }
+  }
+
+  // ── 기존: 설정된 비밀번호와 비교 ──
   const inputHash = hashPassword(password);
   if (storedHash === inputHash) {
     resetLoginAttempts('admin');
     return {
       success: true,
       role: 'admin',
+      needPasswordChange: false,
       courseName: getConfig('course_name'),
       semester: getConfig('semester')
     };
@@ -304,6 +324,35 @@ function handleAdminLogin(payload) {
     }
     return { success: false, error: '비밀번호가 일치하지 않습니다. (' + (MAX_LOGIN_ATTEMPTS - failResult.attempts) + '회 남음)' };
   }
+}
+
+// ── v2.0: 교수 비밀번호 변경 ──
+function handleChangeAdminPassword(payload) {
+  const currentPassword = payload.currentPassword;
+  const newPassword = payload.newPassword;
+
+  if (!newPassword || newPassword.length < 4) {
+    return { success: false, error: '새 비밀번호는 최소 4자 이상이어야 합니다.' };
+  }
+
+  const storedHash = getConfig('admin_password');
+
+  // 초기 상태(빈 비밀번호)에서 변경하는 경우: 현재 비밀번호가 'minsuk615'인지 확인
+  if (!storedHash || storedHash === '') {
+    if (currentPassword !== 'minsuk615') {
+      return { success: false, error: '현재 비밀번호가 일치하지 않습니다.' };
+    }
+  } else {
+    // 설정된 비밀번호와 비교
+    if (hashPassword(currentPassword) !== storedHash) {
+      return { success: false, error: '현재 비밀번호가 일치하지 않습니다.' };
+    }
+  }
+
+  // 새 비밀번호 저장
+  setConfig('admin_password', hashPassword(newPassword));
+
+  return { success: true, message: '비밀번호가 변경되었습니다.' };
 }
 
 // ============================================================
@@ -1114,7 +1163,11 @@ function verifyStudent(studentId, password) {
 function verifyAdmin(password) {
   if (!password) return { success: false, error: '관리자 비밀번호를 입력해주세요.' };
   const storedHash = getConfig('admin_password');
-  if (!storedHash) return { success: false, error: '관리자 비밀번호가 설정되지 않았습니다.' };
+  // v2.0: 초기 상태(빈 비밀번호)에서는 초기 비밀번호로 인증 허용
+  if (!storedHash || storedHash === '') {
+    if (password === 'minsuk615') return { success: true };
+    return { success: false, error: '관리자 인증에 실패했습니다.' };
+  }
   if (hashPassword(password) === storedHash) return { success: true };
   return { success: false, error: '관리자 인증에 실패했습니다.' };
 }
