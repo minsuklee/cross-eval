@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>평가 수행 - 상호평가</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <div class="app-header">
+      <h1>상호평가 시스템</h1>
+      <div class="user-info">
+        <span id="user-name"></span>
+        <button class="btn-logout" onclick="Auth.logout()">로그아웃</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <a href="dashboard.html" class="btn btn-secondary btn-sm">&larr; 대시보드로</a>
+    </div>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <span>평가 대상을 불러오는 중...</span>
+    </div>
+
+    <div id="alert-area"></div>
+    <div id="criteria-area"></div>
+    <div id="eval-area"></div>
+  </div>
+
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    if (!Auth.requireStudent()) throw new Error('Redirect');
+
+    document.getElementById('user-name').textContent = Auth.getUserName() + ' (' + Auth.getStudentId() + ')';
+
+    const params = new URLSearchParams(window.location.search);
+    const assignmentId = params.get('id');
+
+    if (!assignmentId) {
+      window.location.href = 'dashboard.html';
+    }
+
+    let targets = [];
+    let minScore = 0, maxScore = 100;
+
+    async function loadTargets() {
+      const loading = document.getElementById('loading');
+      try {
+        const r = await API.getEvaluationTargets(Auth.getStudentId(), Auth.getPassword(), assignmentId);
+        loading.style.display = 'none';
+
+        if (!r.success) {
+          document.getElementById('alert-area').innerHTML = `<div class="alert alert-error">${r.error}</div>`;
+          return;
+        }
+
+        targets = r.targets;
+        minScore = r.minScore || 0;
+        maxScore = r.maxScore || 100;
+
+        // 채점 기준 표시
+        if (r.criteria) {
+          document.getElementById('criteria-area').innerHTML = `
+            <div class="card">
+              <div class="card-title">채점 기준</div>
+              <p style="font-size:0.9rem;line-height:1.8;white-space:pre-wrap;">${escapeHtml(r.criteria)}</p>
+              <p style="font-size:0.8125rem;color:var(--gray-500);margin-top:8px;">점수 범위: ${minScore} ~ ${maxScore}점 (정수만 입력)</p>
+            </div>
+          `;
+        }
+
+        renderTargets();
+      } catch (err) {
+        loading.style.display = 'none';
+        document.getElementById('alert-area').innerHTML = `<div class="alert alert-error">오류: ${err.message}</div>`;
+      }
+    }
+
+    function renderTargets() {
+      let html = '';
+      targets.forEach((t, idx) => {
+        const isCompleted = t.score !== null;
+        html += `
+          <div class="eval-target" id="target-${idx}">
+            <div class="target-header">
+              <span class="target-name">평가 대상 ${idx + 1}: ${escapeHtml(t.targetName)}</span>
+              ${isCompleted ? '<span class="badge badge-finalized">평가 완료</span>' : '<span class="badge badge-evaluating">미완료</span>'}
+            </div>
+            <p style="margin-bottom:12px;">
+              <a href="${escapeHtml(t.submissionLink)}" target="_blank" class="submission-link">📎 과제물 보기 (새 탭)</a>
+            </p>
+
+            <div class="form-group">
+              <label>점수 (${minScore}~${maxScore})</label>
+              <input type="number" id="score-${idx}" min="${minScore}" max="${maxScore}" step="1"
+                     value="${isCompleted ? t.score : ''}" placeholder="${minScore}~${maxScore} 사이 정수">
+            </div>
+
+            <div class="form-group">
+              <label>서술평 (최소 20자)</label>
+              <textarea id="comment-${idx}" placeholder="평가 의견을 상세히 작성해주세요..."
+                        oninput="updateCharCount(${idx})">${isCompleted ? escapeHtml(t.comment || '') : ''}</textarea>
+              <div class="char-count" id="char-count-${idx}">0자 / 최소 20자</div>
+            </div>
+
+            <button class="btn btn-primary" onclick="submitEval(${idx})" id="btn-submit-${idx}">
+              ${isCompleted ? '수정하기' : '제출하기'}
+            </button>
+          </div>
+        `;
+      });
+      document.getElementById('eval-area').innerHTML = html;
+
+      // 초기 글자수 업데이트
+      targets.forEach((_, idx) => updateCharCount(idx));
+    }
+
+    function updateCharCount(idx) {
+      const textarea = document.getElementById('comment-' + idx);
+      const counter = document.getElementById('char-count-' + idx);
+      const len = textarea.value.length;
+      counter.textContent = len + '자 / 최소 20자';
+      counter.className = 'char-count' + (len < 20 ? ' warn' : '');
+    }
+
+    async function submitEval(idx) {
+      const target = targets[idx];
+      const scoreInput = document.getElementById('score-' + idx);
+      const commentInput = document.getElementById('comment-' + idx);
+      const score = scoreInput.value;
+      const comment = commentInput.value;
+
+      // 클라이언트 측 유효성 검사
+      if (score === '') { alert('점수를 입력해주세요.'); return; }
+      const numScore = Number(score);
+      if (!Number.isInteger(numScore) || numScore < minScore || numScore > maxScore) {
+        alert(`점수는 ${minScore}~${maxScore} 사이의 정수여야 합니다.`);
+        return;
+      }
+      if (comment.trim().length < 20) {
+        alert('서술평은 최소 20자 이상이어야 합니다.');
+        return;
+      }
+
+      const btn = document.getElementById('btn-submit-' + idx);
+      btn.disabled = true;
+      btn.textContent = '제출 중...';
+
+      try {
+        const r = await API.submitEvaluation(
+          Auth.getStudentId(), Auth.getPassword(),
+          assignmentId, target.targetStudentId, numScore, comment.trim()
+        );
+
+        if (!r.success) {
+          alert('오류: ' + r.error);
+          btn.disabled = false;
+          btn.textContent = '제출하기';
+          return;
+        }
+
+        // 성공 시 상태 업데이트
+        targets[idx].score = numScore;
+        targets[idx].comment = comment.trim();
+        renderTargets();
+
+        // 모두 완료 확인
+        const allDone = targets.every(t => t.score !== null);
+        if (allDone) {
+          document.getElementById('alert-area').innerHTML =
+            '<div class="alert alert-success">모든 평가를 완료했습니다! 마감 전까지 수정할 수 있습니다.</div>';
+        } else {
+          document.getElementById('alert-area').innerHTML =
+            '<div class="alert alert-success">평가가 저장되었습니다.</div>';
+        }
+      } catch (err) {
+        alert('서버 오류: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '제출하기';
+      }
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text || '';
+      return d.innerHTML;
+    }
+
+    loadTargets();
+  </script>
+</body>
+</html>
