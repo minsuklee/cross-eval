@@ -9,7 +9,7 @@
 
 const API = (() => {
   // ★ 배포 후 실제 URL로 교체하세요
-  const BASE_URL = 'https://script.google.com/macros/s/AKfycbxuxLNNs6NL17926Zu1mOT0ve97PkgF9HrBnC2mn5p3QCp3Ny2tdCod7v6Kilr6whpN/exec';
+  const BASE_URL = 'https://script.google.com/macros/s/AKfycbyEQjSa6YwEjI7FPOHSOU6ShOey7V_aZR95-Pyc8TRoDo3uvvWvuvLhtRL2xBOdUCSZ/exec';
   const TIMEOUT_MS = 30000;
 
   async function call(payload) {
@@ -60,6 +60,10 @@ const API = (() => {
 
   function adminLogin(password) {
     return call({ action: 'admin_login', password });
+  }
+
+  function changeAdminPassword(currentPassword, newPassword) {
+    return call({ action: 'change_admin_password', currentPassword, newPassword });
   }
 
   // ─── 학생용 ───
@@ -127,11 +131,28 @@ const API = (() => {
     return call({ action: 'get_students_list', adminPassword });
   }
 
+  function removeStudent(adminPassword, studentId) {
+    return call({ action: 'remove_student', adminPassword, studentId });
+  }
+
+  function getCoursesList(adminPassword) {
+    return call({ action: 'get_courses_list', adminPassword });
+  }
+
+  function deleteCourse(adminPassword, courseId) {
+    return call({ action: 'delete_course', adminPassword, courseId });
+  }
+
+  function restoreCourse(adminPassword, courseId) {
+    return call({ action: 'restore_course', adminPassword, courseId });
+  }
+
   return {
-    checkStudent, registerPassword, login, adminLogin,
+    checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
     getMyAssignments, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
     submitProfessorEval, finalizeAssignment, getAllResults,
-    registerStudents, getAssignmentsList, resetPassword, getStudentsList
+    registerStudents, getAssignmentsList, resetPassword, getStudentsList,
+    removeStudent, getCoursesList, deleteCourse, restoreCourse
   };
 })();

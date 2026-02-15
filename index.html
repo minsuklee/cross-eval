@@ -46,11 +46,28 @@
 
       <!-- 교수 로그인 -->
       <div id="admin-form" style="display:none;">
-        <div class="form-group">
-          <label for="admin-pw">관리자 비밀번호</label>
-          <input type="password" id="admin-pw" placeholder="관리자 비밀번호 입력">
+        <!-- 단계1: 비밀번호 입력 -->
+        <div id="admin-step-login">
+          <div class="form-group">
+            <label for="admin-pw">관리자 비밀번호</label>
+            <input type="password" id="admin-pw" placeholder="관리자 비밀번호 입력">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="adminLogin()" id="btn-admin-login">로그인</button>
         </div>
-        <button class="btn btn-primary btn-block" onclick="adminLogin()" id="btn-admin-login">로그인</button>
+
+        <!-- 단계2: 초기 비밀번호 변경 강제 -->
+        <div id="admin-step-change-pw" style="display:none;">
+          <div class="alert alert-info">초기 비밀번호를 사용 중입니다. 보안을 위해 새 비밀번호를 설정해주세요.</div>
+          <div class="form-group">
+            <label for="admin-new-pw">새 비밀번호</label>
+            <input type="password" id="admin-new-pw" placeholder="새 비밀번호 (최소 4자)">
+          </div>
+          <div class="form-group">
+            <label for="admin-new-pw-confirm">새 비밀번호 확인</label>
+            <input type="password" id="admin-new-pw-confirm" placeholder="새 비밀번호 다시 입력">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="changeAdminPw()" id="btn-change-pw">비밀번호 변경</button>
+        </div>
       </div>
     </div>
   </div>
@@ -197,6 +214,8 @@
       }
     }
 
+    let adminInitialPassword = ''; // 초기 비밀번호 변경 시 사용
+
     async function adminLogin() {
       const pw = document.getElementById('admin-pw').value;
       if (!pw) { showAlert('비밀번호를 입력해주세요.', 'error'); return; }
@@ -206,6 +225,17 @@
       try {
         const r = await API.adminLogin(pw);
         if (!r.success) { showAlert(r.error, 'error'); return; }
+
+        // v2.0: 초기 비밀번호 → 강제 비밀번호 변경
+        if (r.needPasswordChange) {
+          adminInitialPassword = pw;
+          document.getElementById('admin-step-login').style.display = 'none';
+          document.getElementById('admin-step-change-pw').style.display = '';
+          clearAlert();
+          document.getElementById('admin-new-pw').focus();
+          return;
+        }
+
         Auth.saveSession({
           role: 'admin',
           adminPassword: pw,
@@ -220,6 +250,36 @@
       }
     }
 
+    async function changeAdminPw() {
+      const newPw = document.getElementById('admin-new-pw').value;
+      const newPwConfirm = document.getElementById('admin-new-pw-confirm').value;
+
+      if (!newPw) { showAlert('새 비밀번호를 입력해주세요.', 'error'); return; }
+      if (newPw.length < 4) { showAlert('비밀번호는 최소 4자 이상이어야 합니다.', 'error'); return; }
+      if (newPw !== newPwConfirm) { showAlert('비밀번호가 일치하지 않습니다.', 'error'); return; }
+
+      clearAlert();
+      setLoading('btn-change-pw', true);
+      try {
+        const r = await API.changeAdminPassword(adminInitialPassword, newPw);
+        if (!r.success) { showAlert(r.error, 'error'); return; }
+
+        // 비밀번호 변경 성공 → 새 비밀번호로 세션 저장 후 대시보드 이동
+        const loginResult = await API.adminLogin(newPw);
+        Auth.saveSession({
+          role: 'admin',
+          adminPassword: newPw,
+          courseName: loginResult.courseName || '',
+          semester: loginResult.semester || ''
+        });
+        window.location.href = 'admin/dashboard.html';
+      } catch (err) {
+        showAlert('서버 오류: ' + err.message, 'error');
+      } finally {
+        setLoading('btn-change-pw', false);
+      }
+    }
+
     // Enter 키 처리
     document.getElementById('student-id').addEventListener('keydown', e => {
       if (e.key === 'Enter') checkStudentId();
@@ -229,6 +289,12 @@
     });
     document.getElementById('admin-pw').addEventListener('keydown', e => {
       if (e.key === 'Enter') adminLogin();
+    });
+    document.getElementById('admin-new-pw').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('admin-new-pw-confirm').focus();
+    });
+    document.getElementById('admin-new-pw-confirm').addEventListener('keydown', e => {
+      if (e.key === 'Enter') changeAdminPw();
     });
   </script>
 </body>
