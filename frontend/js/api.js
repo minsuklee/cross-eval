@@ -135,12 +135,24 @@ const API = (() => {
     return call({ action: 'remove_student', adminPassword, studentId });
   }
 
+  function getCoursesList(adminPassword) {
+    return call({ action: 'get_courses_list', adminPassword });
+  }
+
+  function deleteCourse(adminPassword, courseId) {
+    return call({ action: 'delete_course', adminPassword, courseId });
+  }
+
+  function restoreCourse(adminPassword, courseId) {
+    return call({ action: 'restore_course', adminPassword, courseId });
+  }
+
   return {
     checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
     getMyAssignments, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
     submitProfessorEval, finalizeAssignment, getAllResults,
     registerStudents, getAssignmentsList, resetPassword, getStudentsList,
-    removeStudent
+    removeStudent, getCoursesList, deleteCourse, restoreCourse
   };
 })();

@@ -34,9 +34,19 @@ function getOrCreateSheet(name, headers) {
   return sheet;
 }
 
+function ensureConfigSheet() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('_config');
+  if (!sheet) {
+    sheet = ss.insertSheet('_config');
+    sheet.getRange(1, 1, 1, 2).setValues([['설정키', '설정값']]);
+    sheet.getRange(1, 1, 1, 2).setFontWeight('bold');
+  }
+  return sheet;
+}
+
 function getConfig(key) {
-  const sheet = getSheet('_config');
-  if (!sheet) return null;
+  const sheet = ensureConfigSheet();
   const data = sheet.getDataRange().getValues();
   for (let i = 0; i < data.length; i++) {
     if (data[i][0] === key) return data[i][1];
@@ -45,8 +55,7 @@ function getConfig(key) {
 }
 
 function setConfig(key, value) {
-  const sheet = getSheet('_config');
-  if (!sheet) return;
+  const sheet = ensureConfigSheet();
   const data = sheet.getDataRange().getValues();
   for (let i = 0; i < data.length; i++) {
     if (data[i][0] === key) {
@@ -59,6 +68,17 @@ function setConfig(key, value) {
 
 function isTestMode() {
   return getConfig('test_mode') === 'true' || getConfig('test_mode') === true;
+}
+
+function ensureCourseListSheet() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName('과목_목록');
+  if (!sheet) {
+    sheet = ss.insertSheet('과목_목록');
+    sheet.getRange(1, 1, 1, 7).setValues([['과목ID', '과목명', '년도', '학기', '스프레드시트ID', '생성일시', '상태']]);
+    sheet.getRange(1, 1, 1, 7).setFontWeight('bold');
+  }
+  return sheet;
 }
 
 // ============================================================
@@ -160,6 +180,9 @@ function doPost(e) {
       case 'remove_student': result = handleRemoveStudent(payload); break;
       case 'get_students_list': result = handleGetStudentsList(payload); break;
       case 'change_admin_password': result = handleChangeAdminPassword(payload); break;
+      case 'get_courses_list': result = handleGetCoursesList(payload); break;
+      case 'delete_course': result = handleDeleteCourse(payload); break;
+      case 'restore_course': result = handleRestoreCourse(payload); break;
 
       default:
         result = { success: false, error: '알 수 없는 action: ' + action };
@@ -1147,6 +1170,73 @@ function handleGetStudentsList(payload) {
   return { success: true, students: students };
 }
 
+function handleGetCoursesList(payload) {
+  const adminAuth = verifyAdmin(payload.adminPassword);
+  if (!adminAuth.success) return adminAuth;
+
+  const sheet = ensureCourseListSheet();
+  const data = sheet.getDataRange().getValues();
+  const courses = [];
+
+  for (let i = 1; i < data.length; i++) {
+    courses.push({
+      courseId: String(data[i][0]).trim(),
+      courseName: data[i][1] || '',
+      year: data[i][2] || '',
+      semester: data[i][3] || '',
+      spreadsheetId: data[i][4] || '',
+      createdAt: data[i][5] || '',
+      status: data[i][6] || '활성'
+    });
+  }
+
+  return { success: true, courses: courses };
+}
+
+function handleDeleteCourse(payload) {
+  const adminAuth = verifyAdmin(payload.adminPassword);
+  if (!adminAuth.success) return adminAuth;
+
+  const courseId = payload.courseId;
+  if (!courseId) return { success: false, error: '과목ID가 필요합니다.' };
+
+  const sheet = ensureCourseListSheet();
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === courseId) {
+      if (data[i][6] === '삭제됨') {
+        return { success: false, error: '이미 삭제된 과목입니다.' };
+      }
+      sheet.getRange(i + 1, 7).setValue('삭제됨');
+      return { success: true, message: '\'' + data[i][1] + '\' 과목이 삭제되었습니다. (데이터는 보존됨)' };
+    }
+  }
+  return { success: false, error: '과목을 찾을 수 없습니다.' };
+}
+
+function handleRestoreCourse(payload) {
+  const adminAuth = verifyAdmin(payload.adminPassword);
+  if (!adminAuth.success) return adminAuth;
+
+  const courseId = payload.courseId;
+  if (!courseId) return { success: false, error: '과목ID가 필요합니다.' };
+
+  const sheet = ensureCourseListSheet();
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === courseId) {
+      if (data[i][6] !== '삭제됨') {
+        return { success: false, error: '삭제된 과목이 아닙니다.' };
+      }
+      sheet.getRange(i + 1, 7).setValue('활성');
+      return { success: true, message: '\'' + data[i][1] + '\' 과목이 복원되었습니다.' };
+    }
+  }
+  return { success: false, error: '과목을 찾을 수 없습니다.' };
+}
+
 // ============================================================
 // 유틸리티 함수
 // ============================================================
@@ -1322,8 +1412,8 @@ function assignEvaluators(students) {
 function initializeSystem() {
   const ss = getSpreadsheet();
 
-  // _config 시트
-  const configSheet = getOrCreateSheet('_config', ['설정키', '설정값']);
+  // _config 시트 (자동 생성)
+  ensureConfigSheet();
 
   // 기본 설정
   if (!getConfig('admin_password')) {

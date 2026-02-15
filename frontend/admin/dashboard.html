@@ -20,6 +20,7 @@
       <button class="nav-tab active" onclick="showTab('assignments')">과제 관리</button>
       <button class="nav-tab" onclick="showTab('create')">새 과제</button>
       <button class="nav-tab" onclick="showTab('students')">학생 관리</button>
+      <button class="nav-tab" onclick="showTab('courses')">과목 관리</button>
     </div>
 
     <div id="alert-area"></div>
@@ -85,6 +86,18 @@
       </div>
     </div>
 
+    <!-- ─── 과목 관리 탭 ─── -->
+    <div id="tab-courses" style="display:none;">
+      <div class="card">
+        <div class="card-title">과목 목록</div>
+        <div id="courses-loading" class="loading" style="display:none;">
+          <div class="spinner"></div>
+          <span>과목 목록을 불러오는 중...</span>
+        </div>
+        <div id="courses-table"></div>
+      </div>
+    </div>
+
     <!-- ─── 과제 상세 모달 영역 ─── -->
     <div id="detail-area" style="display:none;"></div>
   </div>
@@ -119,11 +132,11 @@
     let currentAssignmentId = '';
 
     function showTab(name) {
-      ['assignments', 'create', 'students'].forEach(t => {
+      ['assignments', 'create', 'students', 'courses'].forEach(t => {
         document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
       });
       document.querySelectorAll('.nav-tab').forEach((tab, i) => {
-        const tabs = ['assignments', 'create', 'students'];
+        const tabs = ['assignments', 'create', 'students', 'courses'];
         tab.classList.toggle('active', tabs[i] === name);
       });
       document.getElementById('detail-area').style.display = 'none';
@@ -131,6 +144,7 @@
 
       if (name === 'assignments') loadAssignments();
       if (name === 'students') loadStudents();
+      if (name === 'courses') loadCourses();
     }
 
     function showAlert(msg, type) {
@@ -554,6 +568,77 @@
       try {
         const r = await API.removeStudent(adminPw, studentId);
         if (r.success) { showAlert(r.message, 'success'); loadStudents(); }
+        else showAlert(r.error, 'error');
+      } catch (err) {
+        showAlert('오류: ' + err.message, 'error');
+      }
+    }
+
+    // ─── 과목 관리 ───
+    async function loadCourses() {
+      const container = document.getElementById('courses-table');
+      const loading = document.getElementById('courses-loading');
+      loading.style.display = '';
+      container.innerHTML = '';
+
+      try {
+        const r = await API.getCoursesList(adminPw);
+        loading.style.display = 'none';
+        if (!r.success) { container.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }
+        if (r.courses.length === 0) {
+          container.innerHTML = '<div class="empty-state"><div class="empty-icon">📚</div><p>등록된 과목이 없습니다.</p></div>';
+          return;
+        }
+
+        let html = `<div class="table-wrapper"><table>
+          <thead><tr><th>과목ID</th><th>과목명</th><th>년도</th><th>학기</th><th>생성일</th><th>상태</th><th>관리</th></tr></thead><tbody>`;
+        r.courses.forEach(c => {
+          const isDeleted = c.status === '삭제됨';
+          const statusBadge = isDeleted
+            ? '<span class="badge badge-danger" style="background:#fee2e2;color:#dc2626;">삭제됨</span>'
+            : '<span class="badge badge-finalized">활성</span>';
+          const actionBtn = isDeleted
+            ? `<button class="btn btn-success btn-sm" onclick="restoreCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">복원</button>`
+            : `<button class="btn btn-danger btn-sm" onclick="deleteCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">삭제</button>`;
+
+          html += `<tr style="${isDeleted ? 'opacity:0.5;' : ''}">
+            <td>${escapeHtml(c.courseId)}</td>
+            <td>${escapeHtml(c.courseName)}</td>
+            <td>${escapeHtml(String(c.year))}</td>
+            <td>${escapeHtml(String(c.semester))}</td>
+            <td>${escapeHtml(String(c.createdAt))}</td>
+            <td>${statusBadge}</td>
+            <td>${actionBtn}</td>
+          </tr>`;
+        });
+        html += `</tbody></table></div><p style="font-size:0.8125rem;color:var(--gray-500);margin-top:8px;">총 ${r.courses.length}개 과목</p>`;
+        container.innerHTML = html;
+      } catch (err) {
+        loading.style.display = 'none';
+        container.innerHTML = `<div class="alert alert-error">오류: ${err.message}</div>`;
+      }
+    }
+
+    async function deleteCourse(courseId, courseName) {
+      if (!confirm(`'${courseName}' (${courseId}) 과목을 삭제하시겠습니까?\n\n※ 과목 데이터(스프레드시트)는 보존되며, 과목 목록에서만 삭제 표시됩니다.`)) return;
+      if (!confirm(`정말로 '${courseName}' 과목을 삭제하시겠습니까?\n이 작업은 복원 가능합니다.`)) return;
+
+      try {
+        const r = await API.deleteCourse(adminPw, courseId);
+        if (r.success) { showAlert(r.message, 'success'); loadCourses(); }
+        else showAlert(r.error, 'error');
+      } catch (err) {
+        showAlert('오류: ' + err.message, 'error');
+      }
+    }
+
+    async function restoreCourse(courseId, courseName) {
+      if (!confirm(`'${courseName}' (${courseId}) 과목을 복원하시겠습니까?`)) return;
+      if (!confirm(`정말로 '${courseName}' 과목을 복원하시겠습니까?`)) return;
+
+      try {
+        const r = await API.restoreCourse(adminPw, courseId);
+        if (r.success) { showAlert(r.message, 'success'); loadCourses(); }
         else showAlert(r.error, 'error');
       } catch (err) {
         showAlert('오류: ' + err.message, 'error');
