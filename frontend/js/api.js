@@ -9,7 +9,7 @@
 
 const API = (() => {
   // ★ 배포 후 실제 URL로 교체하세요
-  const BASE_URL = 'https://script.google.com/macros/s/AKfycbxuxLNNs6NL17926Zu1mOT0ve97PkgF9HrBnC2mn5p3QCp3Ny2tdCod7v6Kilr6whpN/exec';
+  const BASE_URL = 'https://script.google.com/macros/s/AKfycbyEQjSa6YwEjI7FPOHSOU6ShOey7V_aZR95-Pyc8TRoDo3uvvWvuvLhtRL2xBOdUCSZ/exec';
   const TIMEOUT_MS = 30000;
 
   async function call(payload) {

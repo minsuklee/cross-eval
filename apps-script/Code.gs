@@ -10,7 +10,7 @@
 // ============================================================
 // 전역 설정
 // ============================================================
-const SPREADSHEET_ID = '1IEJnG8dlF-zlPAZsXshJmihH9fPXXOWxZr5tGjypJrw';
+const SPREADSHEET_ID = '10uMTsUbAbNxRP3vEh9NPeVcsJ62OLxh2UH09MDJAGwc';
 
 function getSpreadsheet() {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
