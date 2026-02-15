@@ -50,7 +50,7 @@
     async function loadTargets() {
       const loading = document.getElementById('loading');
       try {
-        const r = await API.getEvaluationTargets(Auth.getStudentId(), Auth.getPassword(), assignmentId);
+        const r = await API.getEvaluationTargets(Auth.getStudentId(), Auth.getPassword(), assignmentId, Auth.getCourseId());
         loading.style.display = 'none';
 
         if (!r.success) {
@@ -153,7 +153,8 @@
       try {
         const r = await API.submitEvaluation(
           Auth.getStudentId(), Auth.getPassword(),
-          assignmentId, target.targetStudentId, numScore, comment.trim()
+          assignmentId, target.targetStudentId, numScore, comment.trim(),
+          Auth.getCourseId()
         );
 
         if (!r.success) {

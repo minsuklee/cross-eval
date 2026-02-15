@@ -41,7 +41,7 @@
       const content = document.getElementById('content');
 
       try {
-        const r = await API.getMyResults(Auth.getStudentId(), Auth.getPassword());
+        const r = await API.getMyResults(Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId());
         loading.style.display = 'none';
 
         if (!r.success) {

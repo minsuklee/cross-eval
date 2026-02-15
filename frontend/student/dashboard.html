@@ -74,7 +74,7 @@
       container.innerHTML = '';
 
       try {
-        const r = await API.getMyAssignments(Auth.getStudentId(), Auth.getPassword());
+        const r = await API.getMyAssignments(Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId());
         loading.style.display = 'none';
 
         if (!r.success) { container.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }
@@ -132,7 +132,7 @@
       container.innerHTML = '';
 
       try {
-        const r = await API.getMyResults(Auth.getStudentId(), Auth.getPassword());
+        const r = await API.getMyResults(Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId());
         loading.style.display = 'none';
 
         if (!r.success) { container.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }

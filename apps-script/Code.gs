@@ -82,6 +82,50 @@ function ensureCourseListSheet() {
 }
 
 // ============================================================
+// 과목별 스프레드시트 접근 헬퍼
+// ============================================================
+const _ssCache = {};
+
+function getCourseSpreadsheetId(courseId) {
+  const sheet = ensureCourseListSheet();
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === courseId && data[i][6] !== '삭제됨') {
+      return data[i][4]; // 스프레드시트ID 컬럼
+    }
+  }
+  return null;
+}
+
+function getCourseSpreadsheet(courseId) {
+  if (!courseId) return getSpreadsheet(); // fallback to master
+  if (_ssCache[courseId]) return _ssCache[courseId];
+  const ssId = getCourseSpreadsheetId(courseId);
+  if (!ssId) throw new Error('과목을 찾을 수 없습니다: ' + courseId);
+  const ss = SpreadsheetApp.openById(ssId);
+  _ssCache[courseId] = ss;
+  return ss;
+}
+
+function getCourseSheet(courseId, sheetName) {
+  const ss = getCourseSpreadsheet(courseId);
+  return ss.getSheetByName(sheetName);
+}
+
+function getOrCreateCourseSheet(courseId, sheetName, headers) {
+  const ss = getCourseSpreadsheet(courseId);
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    if (headers && headers.length > 0) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    }
+  }
+  return sheet;
+}
+
+// ============================================================
 // SHA-256 해싱
 // ============================================================
 function hashPassword(password) {
@@ -184,6 +228,7 @@ function doPost(e) {
       case 'get_courses_list': result = handleGetCoursesList(payload); break;
       case 'delete_course': result = handleDeleteCourse(payload); break;
       case 'restore_course': result = handleRestoreCourse(payload); break;
+      case 'get_active_courses': result = handleGetActiveCourses(payload); break;
 
       default:
         result = { success: false, error: '알 수 없는 action: ' + action };
@@ -211,7 +256,8 @@ function doGet(e) {
 // ============================================================
 function handleCheckStudent(payload) {
   const studentId = String(payload.studentId).trim();
-  const sheet = getSheet('학생_마스터');
+  const courseId = payload.courseId;
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   if (!sheet) return { success: false, error: '학생_마스터 시트를 찾을 수 없습니다.' };
 
   const data = sheet.getDataRange().getValues();
@@ -231,12 +277,13 @@ function handleCheckStudent(payload) {
 function handleRegisterPassword(payload) {
   const studentId = String(payload.studentId).trim();
   const password = payload.password;
+  const courseId = payload.courseId;
 
   if (!password || password.length < 4) {
     return { success: false, error: '비밀번호는 최소 4자 이상이어야 합니다.' };
   }
 
-  const sheet = getSheet('학생_마스터');
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -259,6 +306,7 @@ function handleRegisterPassword(payload) {
 function handleLogin(payload) {
   const studentId = String(payload.studentId).trim();
   const password = payload.password;
+  const courseId = payload.courseId;
 
   // 잠금 확인
   const lockStatus = checkLoginLock(studentId);
@@ -266,7 +314,7 @@ function handleLogin(payload) {
     return { success: false, error: lockStatus.remainingMinutes + '분 후에 다시 시도해주세요.', locked: true };
   }
 
-  const sheet = getSheet('학생_마스터');
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -380,10 +428,11 @@ function handleChangeAdminPassword(payload) {
 // ============================================================
 function handleGetMyAssignments(payload) {
   const studentId = String(payload.studentId).trim();
-  const authResult = verifyStudent(studentId, payload.password);
+  const courseId = payload.courseId;
+  const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
-  const assignSheet = getSheet('과제_목록');
+  const assignSheet = getCourseSheet(courseId, '과제_목록');
   if (!assignSheet) return { success: true, assignments: [] };
 
   const data = assignSheet.getDataRange().getValues();
@@ -396,7 +445,7 @@ function handleGetMyAssignments(payload) {
     let myEvalStatus = 'none';
     if (status === '평가중' || status === '평가완료' || status === '확정') {
       // 평가 배정 확인
-      const evalSheet = getSheet(assignmentId + '_평가배정');
+      const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
       if (evalSheet) {
         const evalData = evalSheet.getDataRange().getValues();
         for (let j = 1; j < evalData.length; j++) {
@@ -433,19 +482,20 @@ function handleGetMyAssignments(payload) {
 
 function handleGetEvaluationTargets(payload) {
   const studentId = String(payload.studentId).trim();
-  const authResult = verifyStudent(studentId, payload.password);
+  const courseId = payload.courseId;
+  const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
   const assignmentId = payload.assignmentId;
 
   // 과제 상태 확인
-  const assignment = getAssignmentInfo(assignmentId);
+  const assignment = getAssignmentInfo(assignmentId, courseId);
   if (!assignment) return { success: false, error: '과제를 찾을 수 없습니다.' };
   if (assignment.status !== '평가중') {
     return { success: false, error: '현재 평가 기간이 아닙니다.' };
   }
 
-  const evalSheet = getSheet(assignmentId + '_평가배정');
+  const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
   if (!evalSheet) return { success: false, error: '평가 배정 정보가 없습니다.' };
 
   const data = evalSheet.getDataRange().getValues();
@@ -482,7 +532,8 @@ function handleGetEvaluationTargets(payload) {
 
 function handleSubmitEvaluation(payload) {
   const studentId = String(payload.studentId).trim();
-  const authResult = verifyStudent(studentId, payload.password);
+  const courseId = payload.courseId;
+  const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
   const assignmentId = payload.assignmentId;
@@ -491,7 +542,7 @@ function handleSubmitEvaluation(payload) {
   const comment = payload.comment;
 
   // 과제 상태 확인
-  const assignment = getAssignmentInfo(assignmentId);
+  const assignment = getAssignmentInfo(assignmentId, courseId);
   if (!assignment) return { success: false, error: '과제를 찾을 수 없습니다.' };
   if (assignment.status !== '평가중') {
     return { success: false, error: '현재 평가 기간이 아닙니다.' };
@@ -528,7 +579,7 @@ function handleSubmitEvaluation(payload) {
   }
 
   // 평가 배정 확인 및 기록
-  const evalSheet = getSheet(assignmentId + '_평가배정');
+  const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
   if (!evalSheet) return { success: false, error: '평가 배정 시트를 찾을 수 없습니다.' };
 
   const lock = LockService.getScriptLock();
@@ -568,10 +619,11 @@ function handleSubmitEvaluation(payload) {
 
 function handleGetMyResults(payload) {
   const studentId = String(payload.studentId).trim();
-  const authResult = verifyStudent(studentId, payload.password);
+  const courseId = payload.courseId;
+  const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
-  const assignSheet = getSheet('과제_목록');
+  const assignSheet = getCourseSheet(courseId, '과제_목록');
   if (!assignSheet) return { success: true, results: [] };
 
   const assignData = assignSheet.getDataRange().getValues();
@@ -583,7 +635,7 @@ function handleGetMyResults(payload) {
 
     if (status !== '확정') continue;
 
-    const resultSheet = getSheet(assignmentId + '_결과');
+    const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
     if (!resultSheet) continue;
 
     const resultData = resultSheet.getDataRange().getValues();
@@ -643,8 +695,9 @@ function handleGetMyResults(payload) {
 function handleCreateAssignment(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
-  const assignSheet = getOrCreateSheet('과제_목록', [
+  const assignSheet = getOrCreateCourseSheet(courseId, '과제_목록', [
     '과제ID', '과제명', '과제설명', '제출마감일시', '평가마감일시',
     '상태', 'Google_Form_URL', '채점기준_설명', '최소점수', '최대점수'
   ]);
@@ -669,17 +722,17 @@ function handleCreateAssignment(payload) {
   ]);
 
   // 관련 시트 생성
-  getOrCreateSheet(assignmentId + '_제출', [
+  getOrCreateCourseSheet(courseId, assignmentId + '_제출', [
     '타임스탬프', '이메일', '학번', '이름', '학과', '제출파일_링크', '유효'
   ]);
 
-  getOrCreateSheet(assignmentId + '_평가배정', [
+  getOrCreateCourseSheet(courseId, assignmentId + '_평가배정', [
     '평가자_학번', '평가자_이름',
     '피평가자1_학번', '피평가자1_이름', '피평가자1_제출링크', '평가1_점수', '평가1_서술평', '평가1_완료시각',
     '피평가자2_학번', '피평가자2_이름', '피평가자2_제출링크', '평가2_점수', '평가2_서술평', '평가2_완료시각'
   ]);
 
-  getOrCreateSheet(assignmentId + '_결과', [
+  getOrCreateCourseSheet(courseId, assignmentId + '_결과', [
     '학번', '이름', '제출일', '제출파일_링크',
     '평가자1_학번', '받은점수1', '받은서술평1',
     '평가자2_학번', '받은점수2', '받은서술평2',
@@ -702,16 +755,17 @@ function handleStartEvaluation(payload) {
 
   const assignmentId = payload.assignmentId;
   const evalDeadline = payload.evalDeadline;
+  const courseId = payload.courseId;
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
 
   try {
     // 1. 중복 제출 정리
-    const dedupeResult = deduplicateSubmissions(assignmentId);
+    const dedupeResult = deduplicateSubmissions(assignmentId, courseId);
 
     // 2. 유효 제출자 목록 추출
-    const submitSheet = getSheet(assignmentId + '_제출');
+    const submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
     const submitData = submitSheet.getDataRange().getValues();
     const validStudents = [];
 
@@ -738,7 +792,7 @@ function handleStartEvaluation(payload) {
     const assignments = assignEvaluators(validStudents);
 
     // 4. 평가배정 시트에 기록
-    const evalSheet = getSheet(assignmentId + '_평가배정');
+    const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
     // 기존 데이터 클리어 (헤더 유지)
     if (evalSheet.getLastRow() > 1) {
       evalSheet.getRange(2, 1, evalSheet.getLastRow() - 1, evalSheet.getLastColumn()).clear();
@@ -756,8 +810,8 @@ function handleStartEvaluation(payload) {
     }
 
     // 5. 과제 상태 변경
-    updateAssignmentStatus(assignmentId, '평가중');
-    updateAssignmentEvalDeadline(assignmentId, evalDeadline);
+    updateAssignmentStatus(assignmentId, '평가중', courseId);
+    updateAssignmentEvalDeadline(assignmentId, evalDeadline, courseId);
 
     lock.releaseLock();
 
@@ -779,15 +833,16 @@ function handleEndEvaluation(payload) {
   if (!adminAuth.success) return adminAuth;
 
   const assignmentId = payload.assignmentId;
+  const courseId = payload.courseId;
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
 
   try {
     // 평가 결과 집계
-    const evalSheet = getSheet(assignmentId + '_평가배정');
-    const resultSheet = getSheet(assignmentId + '_결과');
-    const submitSheet = getSheet(assignmentId + '_제출');
+    const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
+    const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
+    const submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
 
     if (!evalSheet || !resultSheet || !submitSheet) {
       lock.releaseLock();
@@ -875,7 +930,7 @@ function handleEndEvaluation(payload) {
     }
 
     // 상태 변경
-    updateAssignmentStatus(assignmentId, '평가완료');
+    updateAssignmentStatus(assignmentId, '평가완료', courseId);
 
     lock.releaseLock();
 
@@ -894,9 +949,10 @@ function handleEndEvaluation(payload) {
 function handleGetEvalStatus(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const assignmentId = payload.assignmentId;
-  const evalSheet = getSheet(assignmentId + '_평가배정');
+  const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
   if (!evalSheet) return { success: false, error: '평가 배정 시트가 없습니다.' };
 
   const data = evalSheet.getDataRange().getValues();
@@ -933,13 +989,14 @@ function handleGetEvalStatus(payload) {
 function handleSubmitProfessorEval(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const assignmentId = payload.assignmentId;
   const studentId = String(payload.studentId).trim();
   const score = Number(payload.score);
   const comment = payload.comment || '';
 
-  const resultSheet = getSheet(assignmentId + '_결과');
+  const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
   if (!resultSheet) return { success: false, error: '결과 시트를 찾을 수 없습니다.' };
 
   const data = resultSheet.getDataRange().getValues();
@@ -956,11 +1013,12 @@ function handleSubmitProfessorEval(payload) {
 function handleFinalizeAssignment(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const assignmentId = payload.assignmentId;
 
   // 결과 시트에서 교수 평가 완료 여부 확인
-  const resultSheet = getSheet(assignmentId + '_결과');
+  const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
   if (!resultSheet) return { success: false, error: '결과 시트를 찾을 수 없습니다.' };
 
   const data = resultSheet.getDataRange().getValues();
@@ -980,7 +1038,7 @@ function handleFinalizeAssignment(payload) {
   }
 
   // 학생_마스터에 최종 점수 기록
-  const masterSheet = getSheet('학생_마스터');
+  const masterSheet = getCourseSheet(courseId, '학생_마스터');
   const masterData = masterSheet.getDataRange().getValues();
   const headers = masterData[0];
 
@@ -1010,7 +1068,7 @@ function handleFinalizeAssignment(payload) {
     }
   }
 
-  updateAssignmentStatus(assignmentId, '확정');
+  updateAssignmentStatus(assignmentId, '확정', courseId);
 
   return { success: true, message: assignmentId + ' 확정 완료. 학생에게 결과가 공개됩니다.' };
 }
@@ -1018,9 +1076,10 @@ function handleFinalizeAssignment(payload) {
 function handleGetAllResults(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const assignmentId = payload.assignmentId;
-  const resultSheet = getSheet(assignmentId + '_결과');
+  const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
   if (!resultSheet) return { success: false, error: '결과 시트를 찾을 수 없습니다.' };
 
   const data = resultSheet.getDataRange().getValues();
@@ -1052,9 +1111,10 @@ function handleGetAllResults(payload) {
 function handleRegisterStudents(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const students = payload.students; // [{studentId, name}]
-  const sheet = getOrCreateSheet('학생_마스터', ['학번', '이름', '비밀번호']);
+  const sheet = getOrCreateCourseSheet(courseId, '학생_마스터', ['학번', '이름', '비밀번호']);
 
   const existing = {};
   const data = sheet.getDataRange().getValues();
@@ -1088,8 +1148,9 @@ function handleRegisterStudents(payload) {
 function handleGetAssignmentsList(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
-  const sheet = getSheet('과제_목록');
+  const sheet = getCourseSheet(courseId, '과제_목록');
   if (!sheet) return { success: true, assignments: [] };
 
   const data = sheet.getDataRange().getValues();
@@ -1114,9 +1175,10 @@ function handleGetAssignmentsList(payload) {
 function handleResetPassword(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const studentId = String(payload.studentId).trim();
-  const sheet = getSheet('학생_마스터');
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -1132,13 +1194,14 @@ function handleResetPassword(payload) {
 function handleRemoveStudent(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
   const studentId = String(payload.studentId).trim();
   if (!studentId) {
     return { success: false, error: '학번이 필요합니다.' };
   }
 
-  const sheet = getSheet('학생_마스터');
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   if (!sheet) return { success: false, error: '학생_마스터 시트를 찾을 수 없습니다.' };
 
   const data = sheet.getDataRange().getValues();
@@ -1155,8 +1218,9 @@ function handleRemoveStudent(payload) {
 function handleGetStudentsList(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
+  const courseId = payload.courseId;
 
-  const sheet = getSheet('학생_마스터');
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   if (!sheet) return { success: true, students: [] };
 
   const data = sheet.getDataRange().getValues();
@@ -1270,6 +1334,24 @@ function handleGetCoursesList(payload) {
   return { success: true, courses: courses };
 }
 
+function handleGetActiveCourses(payload) {
+  // 인증 불필요 — 학생 로그인 시 과목 선택용
+  const sheet = ensureCourseListSheet();
+  const data = sheet.getDataRange().getValues();
+  const courses = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][6] !== '삭제됨') {
+      courses.push({
+        courseId: String(data[i][0]).trim(),
+        courseName: data[i][1] || '',
+        year: data[i][2] || '',
+        semester: data[i][3] || ''
+      });
+    }
+  }
+  return { success: true, courses: courses };
+}
+
 function handleDeleteCourse(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
@@ -1317,7 +1399,7 @@ function handleRestoreCourse(payload) {
 // ============================================================
 // 유틸리티 함수
 // ============================================================
-function verifyStudent(studentId, password) {
+function verifyStudent(studentId, password, courseId) {
   if (!studentId || !password) {
     return { success: false, error: '학번과 비밀번호를 입력해주세요.' };
   }
@@ -1327,12 +1409,12 @@ function verifyStudent(studentId, password) {
     return { success: false, error: lockStatus.remainingMinutes + '분 후에 다시 시도해주세요.' };
   }
 
-  const sheet = getSheet('학생_마스터');
+  const sheet = getCourseSheet(courseId, '학생_마스터');
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === studentId) {
-      const storedHash = data[i][4];
+      const storedHash = data[i][2]; // 비밀번호는 인덱스 2 (학번, 이름, 비밀번호)
       if (!storedHash) return { success: false, error: '비밀번호가 설정되지 않았습니다.' };
       if (storedHash === hashPassword(password)) {
         return { success: true };
@@ -1355,8 +1437,8 @@ function verifyAdmin(password) {
   return { success: false, error: '관리자 인증에 실패했습니다.' };
 }
 
-function getAssignmentInfo(assignmentId) {
-  const sheet = getSheet('과제_목록');
+function getAssignmentInfo(assignmentId, courseId) {
+  const sheet = getCourseSheet(courseId, '과제_목록');
   if (!sheet) return null;
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
@@ -1378,8 +1460,8 @@ function getAssignmentInfo(assignmentId) {
   return null;
 }
 
-function updateAssignmentStatus(assignmentId, newStatus) {
-  const sheet = getSheet('과제_목록');
+function updateAssignmentStatus(assignmentId, newStatus, courseId) {
+  const sheet = getCourseSheet(courseId, '과제_목록');
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === assignmentId) {
@@ -1389,8 +1471,8 @@ function updateAssignmentStatus(assignmentId, newStatus) {
   }
 }
 
-function updateAssignmentEvalDeadline(assignmentId, deadline) {
-  const sheet = getSheet('과제_목록');
+function updateAssignmentEvalDeadline(assignmentId, deadline, courseId) {
+  const sheet = getCourseSheet(courseId, '과제_목록');
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === assignmentId) {
@@ -1403,8 +1485,8 @@ function updateAssignmentEvalDeadline(assignmentId, deadline) {
 // ============================================================
 // 중복 제출 정리
 // ============================================================
-function deduplicateSubmissions(assignmentId) {
-  const sheet = getSheet(assignmentId + '_제출');
+function deduplicateSubmissions(assignmentId, courseId) {
+  const sheet = getCourseSheet(courseId, assignmentId + '_제출');
   if (!sheet) return { error: '제출 시트 없음' };
 
   const data = sheet.getDataRange().getValues();

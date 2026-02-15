@@ -51,6 +51,11 @@ const Auth = (() => {
     return s ? s.adminPassword : null;
   }
 
+  function getCourseId() {
+    const s = getSession();
+    return s ? s.courseId : null;
+  }
+
   function getUserName() {
     const s = getSession();
     return s ? s.name : null;
@@ -80,7 +85,7 @@ const Auth = (() => {
   return {
     saveSession, getSession, clearSession,
     isLoggedIn, isAdmin, isStudent,
-    getStudentId, getPassword, getAdminPassword, getUserName,
+    getStudentId, getPassword, getAdminPassword, getUserName, getCourseId,
     requireStudent, requireAdmin, logout
   };
 })();
