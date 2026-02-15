@@ -180,6 +180,7 @@ function doPost(e) {
       case 'remove_student': result = handleRemoveStudent(payload); break;
       case 'get_students_list': result = handleGetStudentsList(payload); break;
       case 'change_admin_password': result = handleChangeAdminPassword(payload); break;
+      case 'create_course': result = handleCreateCourse(payload); break;
       case 'get_courses_list': result = handleGetCoursesList(payload); break;
       case 'delete_course': result = handleDeleteCourse(payload); break;
       case 'restore_course': result = handleRestoreCourse(payload); break;
@@ -1168,6 +1169,82 @@ function handleGetStudentsList(payload) {
     });
   }
   return { success: true, students: students };
+}
+
+// ── v2.1: 과목 생성 ──
+function handleCreateCourse(payload) {
+  const adminAuth = verifyAdmin(payload.adminPassword);
+  if (!adminAuth.success) return adminAuth;
+
+  const courseName = (payload.courseName || '').trim();
+  const year = (payload.year || '').toString().trim();
+  const semester = (payload.semester || '').toString().trim();
+
+  if (!courseName) return { success: false, error: '과목명을 입력해주세요.' };
+  if (!year) return { success: false, error: '년도를 입력해주세요.' };
+  if (!semester) return { success: false, error: '학기를 선택해주세요.' };
+
+  const sheet = ensureCourseListSheet();
+  const data = sheet.getDataRange().getValues();
+
+  // 과목ID 자동 생성 (C1, C2, ...)
+  let maxId = 0;
+  for (let i = 1; i < data.length; i++) {
+    const id = String(data[i][0]).trim();
+    if (id.startsWith('C')) {
+      const num = parseInt(id.substring(1));
+      if (!isNaN(num) && num > maxId) maxId = num;
+    }
+  }
+  const courseId = 'C' + (maxId + 1);
+
+  // 과목별 스프레드시트 생성
+  const ssName = 'CrossEval-' + year + '-' + semester + '-' + courseName;
+  let newSS;
+  try {
+    newSS = SpreadsheetApp.create(ssName);
+  } catch (e) {
+    return { success: false, error: '스프레드시트 생성 실패: ' + e.message };
+  }
+
+  const newSSId = newSS.getId();
+
+  // 과목별 스프레드시트에 기본 시트 생성
+  try {
+    // _config 시트
+    const configSheet = newSS.getSheetByName('Sheet1') || newSS.insertSheet('_config');
+    configSheet.setName('_config');
+    configSheet.getRange(1, 1, 1, 2).setValues([['설정키', '설정값']]);
+    configSheet.getRange(1, 1, 1, 2).setFontWeight('bold');
+    configSheet.appendRow(['course_name', courseName]);
+    configSheet.appendRow(['year', year]);
+    configSheet.appendRow(['semester', semester]);
+    configSheet.appendRow(['created_at', new Date().toISOString()]);
+
+    // 학생_마스터 시트
+    const studentSheet = newSS.insertSheet('학생_마스터');
+    studentSheet.getRange(1, 1, 1, 3).setValues([['학번', '이름', '비밀번호']]);
+    studentSheet.getRange(1, 1, 1, 3).setFontWeight('bold');
+
+    // 과제_목록 시트
+    const assignSheet = newSS.insertSheet('과제_목록');
+    assignSheet.getRange(1, 1, 1, 10).setValues([['과제ID', '과제명', '과제설명', '제출마감일시', '평가마감일시', '상태', 'Google_Form_URL', '채점기준_설명', '최소점수', '최대점수']]);
+    assignSheet.getRange(1, 1, 1, 10).setFontWeight('bold');
+  } catch (e) {
+    return { success: false, error: '시트 구조 생성 실패: ' + e.message };
+  }
+
+  // 마스터 스프레드시트의 과목_목록에 추가
+  const now = new Date().toISOString();
+  sheet.appendRow([courseId, courseName, year, semester, newSSId, now, '활성']);
+
+  return {
+    success: true,
+    courseId: courseId,
+    courseName: courseName,
+    spreadsheetId: newSSId,
+    message: "'" + courseName + "' 과목이 생성되었습니다."
+  };
 }
 
 function handleGetCoursesList(payload) {

@@ -12,6 +12,7 @@
       <h1>상호평가 관리</h1>
       <div class="user-info">
         <span id="course-info"></span>
+        <span id="current-course-badge" style="background:#e0e7ff;color:#3730a3;padding:4px 12px;border-radius:12px;font-size:0.8125rem;font-weight:600;margin-right:8px;display:none;"></span>
         <button class="btn-logout" onclick="Auth.logout()">로그아웃</button>
       </div>
     </div>
@@ -88,6 +89,31 @@
 
     <!-- ─── 과목 관리 탭 ─── -->
     <div id="tab-courses" style="display:none;">
+      <!-- 새 과목 추가 폼 -->
+      <div class="card">
+        <div class="card-title">새 과목 추가</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="form-group" style="flex:2;min-width:180px;margin-bottom:0;">
+            <label for="new-course-name">과목 이름</label>
+            <input type="text" id="new-course-name" placeholder="예: 소프트웨어공학개론">
+          </div>
+          <div class="form-group" style="flex:1;min-width:100px;margin-bottom:0;">
+            <label for="new-course-year">년도</label>
+            <input type="number" id="new-course-year" placeholder="2026" value="2026">
+          </div>
+          <div class="form-group" style="flex:1;min-width:100px;margin-bottom:0;">
+            <label for="new-course-semester">학기</label>
+            <select id="new-course-semester">
+              <option value="1">1학기</option>
+              <option value="2">2학기</option>
+              <option value="summer">여름학기</option>
+              <option value="winter">겨울학기</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="btn-create-course" onclick="createCourseAction()" style="height:40px;">과목 추가</button>
+        </div>
+      </div>
+      <!-- 과목 목록 -->
       <div class="card">
         <div class="card-title">과목 목록</div>
         <div id="courses-loading" class="loading" style="display:none;">
@@ -130,6 +156,35 @@
     const adminPw = Auth.getAdminPassword();
     let currentAssignments = [];
     let currentAssignmentId = '';
+
+    // ── v2.1: 현재 선택된 과목 관리 ──
+    const SELECTED_COURSE_KEY = 'cross_eval_selected_course';
+
+    function getSelectedCourse() {
+      const raw = sessionStorage.getItem(SELECTED_COURSE_KEY);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch { return null; }
+    }
+
+    function setSelectedCourse(courseId, courseName) {
+      sessionStorage.setItem(SELECTED_COURSE_KEY, JSON.stringify({ courseId, courseName }));
+      updateCurrentCourseBadge();
+    }
+
+    function updateCurrentCourseBadge() {
+      const badge = document.getElementById('current-course-badge');
+      const selected = getSelectedCourse();
+      if (selected && selected.courseName) {
+        badge.textContent = '📚 ' + selected.courseName;
+        badge.style.display = '';
+      } else {
+        badge.textContent = '';
+        badge.style.display = 'none';
+      }
+    }
+
+    // 페이지 로드 시 현재 선택 과목 표시
+    updateCurrentCourseBadge();
 
     function showTab(name) {
       ['assignments', 'create', 'students', 'courses'].forEach(t => {
@@ -575,6 +630,43 @@
     }
 
     // ─── 과목 관리 ───
+    async function createCourseAction() {
+      const name = document.getElementById('new-course-name').value.trim();
+      const year = document.getElementById('new-course-year').value.trim();
+      const semester = document.getElementById('new-course-semester').value;
+
+      if (!name) { showAlert('과목 이름을 입력해주세요.', 'error'); return; }
+      if (!year) { showAlert('년도를 입력해주세요.', 'error'); return; }
+
+      const btn = document.getElementById('btn-create-course');
+      btn.disabled = true;
+      btn.textContent = '생성 중...';
+
+      try {
+        const r = await API.createCourse(adminPw, name, year, semester);
+        if (r.success) {
+          showAlert(r.message, 'success');
+          document.getElementById('new-course-name').value = '';
+          // 자동으로 새로 만든 과목 선택
+          setSelectedCourse(r.courseId, name);
+          loadCourses();
+        } else {
+          showAlert(r.error, 'error');
+        }
+      } catch (err) {
+        showAlert('오류: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '과목 추가';
+      }
+    }
+
+    function selectCourse(courseId, courseName) {
+      setSelectedCourse(courseId, courseName);
+      showAlert(`'${courseName}' 과목이 선택되었습니다.`, 'success');
+      loadCourses(); // 선택 상태 UI 갱신
+    }
+
     async function loadCourses() {
       const container = document.getElementById('courses-table');
       const loading = document.getElementById('courses-loading');
@@ -586,29 +678,41 @@
         loading.style.display = 'none';
         if (!r.success) { container.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }
         if (r.courses.length === 0) {
-          container.innerHTML = '<div class="empty-state"><div class="empty-icon">📚</div><p>등록된 과목이 없습니다.</p></div>';
+          container.innerHTML = '<div class="empty-state"><div class="empty-icon">📚</div><p>등록된 과목이 없습니다. 위 폼에서 새 과목을 추가하세요.</p></div>';
           return;
         }
 
+        const selected = getSelectedCourse();
         let html = `<div class="table-wrapper"><table>
           <thead><tr><th>과목ID</th><th>과목명</th><th>년도</th><th>학기</th><th>생성일</th><th>상태</th><th>관리</th></tr></thead><tbody>`;
         r.courses.forEach(c => {
           const isDeleted = c.status === '삭제됨';
+          const isSelected = selected && selected.courseId === c.courseId;
           const statusBadge = isDeleted
             ? '<span class="badge badge-danger" style="background:#fee2e2;color:#dc2626;">삭제됨</span>'
-            : '<span class="badge badge-finalized">활성</span>';
-          const actionBtn = isDeleted
-            ? `<button class="btn btn-success btn-sm" onclick="restoreCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">복원</button>`
-            : `<button class="btn btn-danger btn-sm" onclick="deleteCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">삭제</button>`;
+            : isSelected
+              ? '<span class="badge" style="background:#dbeafe;color:#1d4ed8;">선택됨</span>'
+              : '<span class="badge badge-finalized">활성</span>';
 
-          html += `<tr style="${isDeleted ? 'opacity:0.5;' : ''}">
+          let actionBtns = '';
+          if (isDeleted) {
+            actionBtns = `<button class="btn btn-success btn-sm" onclick="restoreCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">복원</button>`;
+          } else {
+            const selectBtn = isSelected
+              ? '<button class="btn btn-sm" style="background:#dbeafe;color:#1d4ed8;cursor:default;" disabled>선택됨</button>'
+              : `<button class="btn btn-primary btn-sm" onclick="selectCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">선택</button>`;
+            actionBtns = `<div style="display:flex;gap:4px;">${selectBtn}<button class="btn btn-danger btn-sm" onclick="deleteCourse('${escapeHtml(c.courseId)}','${escapeHtml(c.courseName)}')">삭제</button></div>`;
+          }
+
+          const rowStyle = isDeleted ? 'opacity:0.4;' : isSelected ? 'background:#eff6ff;' : '';
+          html += `<tr style="${rowStyle}">
             <td>${escapeHtml(c.courseId)}</td>
-            <td>${escapeHtml(c.courseName)}</td>
+            <td><strong>${escapeHtml(c.courseName)}</strong></td>
             <td>${escapeHtml(String(c.year))}</td>
             <td>${escapeHtml(String(c.semester))}</td>
-            <td>${escapeHtml(String(c.createdAt))}</td>
+            <td>${escapeHtml(String(c.createdAt).substring(0, 10))}</td>
             <td>${statusBadge}</td>
-            <td>${actionBtn}</td>
+            <td>${actionBtns}</td>
           </tr>`;
         });
         html += `</tbody></table></div><p style="font-size:0.8125rem;color:var(--gray-500);margin-top:8px;">총 ${r.courses.length}개 과목</p>`;
@@ -625,7 +729,16 @@
 
       try {
         const r = await API.deleteCourse(adminPw, courseId);
-        if (r.success) { showAlert(r.message, 'success'); loadCourses(); }
+        if (r.success) {
+          showAlert(r.message, 'success');
+          // 삭제된 과목이 현재 선택된 과목이면 선택 해제
+          const selected = getSelectedCourse();
+          if (selected && selected.courseId === courseId) {
+            sessionStorage.removeItem(SELECTED_COURSE_KEY);
+            updateCurrentCourseBadge();
+          }
+          loadCourses();
+        }
         else showAlert(r.error, 'error');
       } catch (err) {
         showAlert('오류: ' + err.message, 'error');
