@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>상호평가 시스템 - 로그인</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <h1>상호평가 시스템</h1>
+      <p class="subtitle">과제 상호평가 및 결과 확인</p>
+
+      <div class="login-tabs">
+        <button class="login-tab active" onclick="switchTab('student')">학생</button>
+        <button class="login-tab" onclick="switchTab('admin')">교수</button>
+      </div>
+
+      <div id="alert-area"></div>
+
+      <!-- 학생 로그인 -->
+      <div id="student-form">
+        <div id="step-course">
+          <div class="form-group">
+            <label for="course-select">과목 선택</label>
+            <select id="course-select">
+              <option value="">과목을 선택하세요</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-block" onclick="selectCourse()" id="btn-select-course">다음</button>
+          <div id="course-loading" style="display:none;text-align:center;margin-top:12px;">
+            <div class="spinner" style="margin:0 auto;"></div>
+          </div>
+        </div>
+
+        <div id="step-check" style="display:none;">
+          <div class="form-group">
+            <label for="student-id">학번</label>
+            <input type="text" id="student-id" placeholder="학번 입력" inputmode="numeric" autocomplete="off">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="checkStudentId()" id="btn-check">다음</button>
+          <button class="btn btn-secondary btn-block" onclick="backToCourse()" style="margin-top:8px;">뒤로</button>
+        </div>
+
+        <div id="step-password" style="display:none;">
+          <div class="alert alert-info" id="student-info-msg"></div>
+          <div class="form-group">
+            <label for="student-pw" id="pw-label">비밀번호</label>
+            <input type="password" id="student-pw" placeholder="비밀번호 입력">
+          </div>
+          <div id="pw-confirm-group" class="form-group" style="display:none;">
+            <label for="student-pw-confirm">비밀번호 확인</label>
+            <input type="password" id="student-pw-confirm" placeholder="비밀번호 다시 입력">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="studentLogin()" id="btn-login">로그인</button>
+          <button class="btn btn-secondary btn-block" onclick="backToCheck()" style="margin-top:8px;">뒤로</button>
+        </div>
+      </div>
+
+      <!-- 교수 로그인 -->
+      <div id="admin-form" style="display:none;">
+        <!-- 단계1: 비밀번호 입력 -->
+        <div id="admin-step-login">
+          <div class="form-group">
+            <label for="admin-pw">관리자 비밀번호</label>
+            <input type="password" id="admin-pw" placeholder="관리자 비밀번호 입력">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="adminLogin()" id="btn-admin-login">로그인</button>
+        </div>
+
+        <!-- 단계2: 초기 비밀번호 변경 강제 -->
+        <div id="admin-step-change-pw" style="display:none;">
+          <div class="alert alert-info">초기 비밀번호를 사용 중입니다. 보안을 위해 새 비밀번호를 설정해주세요.</div>
+          <div class="form-group">
+            <label for="admin-new-pw">새 비밀번호</label>
+            <input type="password" id="admin-new-pw" placeholder="새 비밀번호 (최소 4자)">
+          </div>
+          <div class="form-group">
+            <label for="admin-new-pw-confirm">새 비밀번호 확인</label>
+            <input type="password" id="admin-new-pw-confirm" placeholder="새 비밀번호 다시 입력">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="changeAdminPw()" id="btn-change-pw">비밀번호 변경</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    // 이미 로그인 상태라면 리다이렉트
+    if (Auth.isStudent()) window.location.href = 'student/dashboard.html';
+    if (Auth.isAdmin()) window.location.href = 'admin/dashboard.html';
+
+    let currentStudentId = '';
+    let isNewUser = false;
+    let selectedCourseId = '';
+    let selectedCourseName = '';
+
+    // 페이지 로드 시 활성 과목 목록 가져오기
+    (async function loadCourses() {
+      const loadingEl = document.getElementById('course-loading');
+      const selectEl = document.getElementById('course-select');
+      loadingEl.style.display = '';
+      try {
+        const r = await API.getActiveCourses();
+        if (r.success && r.courses && r.courses.length > 0) {
+          r.courses.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.courseId;
+            opt.textContent = c.courseName + ' (' + c.year + '-' + c.semester + ')';
+            opt.dataset.name = c.courseName;
+            selectEl.appendChild(opt);
+          });
+        } else {
+          selectEl.innerHTML = '<option value="">등록된 과목이 없습니다</option>';
+        }
+      } catch (err) {
+        selectEl.innerHTML = '<option value="">과목 로딩 실패</option>';
+      } finally {
+        loadingEl.style.display = 'none';
+      }
+    })();
+
+    function selectCourse() {
+      const sel = document.getElementById('course-select');
+      if (!sel.value) { showAlert('과목을 선택해주세요.', 'error'); return; }
+      selectedCourseId = sel.value;
+      selectedCourseName = sel.options[sel.selectedIndex].dataset.name || sel.options[sel.selectedIndex].textContent;
+      clearAlert();
+      document.getElementById('step-course').style.display = 'none';
+      document.getElementById('step-check').style.display = '';
+      document.getElementById('student-id').focus();
+    }
+
+    function backToCourse() {
+      document.getElementById('step-check').style.display = 'none';
+      document.getElementById('step-course').style.display = '';
+      document.getElementById('student-id').value = '';
+      clearAlert();
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+      if (tab === 'student') {
+        document.querySelectorAll('.login-tab')[0].classList.add('active');
+        document.getElementById('student-form').style.display = '';
+        document.getElementById('admin-form').style.display = 'none';
+      } else {
+        document.querySelectorAll('.login-tab')[1].classList.add('active');
+        document.getElementById('student-form').style.display = 'none';
+        document.getElementById('admin-form').style.display = '';
+      }
+      clearAlert();
+    }
+
+    function showAlert(msg, type) {
+      document.getElementById('alert-area').innerHTML =
+        `<div class="alert alert-${type}">${msg}</div>`;
+    }
+    function clearAlert() { document.getElementById('alert-area').innerHTML = ''; }
+
+    function setLoading(btnId, loading) {
+      const btn = document.getElementById(btnId);
+      btn.disabled = loading;
+      if (loading) {
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = '처리 중...';
+      } else {
+        btn.textContent = btn.dataset.originalText || btn.textContent;
+      }
+    }
+
+    async function checkStudentId() {
+      const sid = document.getElementById('student-id').value.trim();
+      if (!sid) { showAlert('학번을 입력해주세요.', 'error'); return; }
+
+      clearAlert();
+      setLoading('btn-check', true);
+      try {
+        const r = await API.checkStudent(sid, selectedCourseId);
+        if (!r.success || !r.exists) {
+          showAlert('등록되지 않은 학번입니다. 교수에게 문의하세요.', 'error');
+          return;
+        }
+
+        currentStudentId = sid;
+        isNewUser = !r.hasPassword;
+
+        document.getElementById('step-check').style.display = 'none';
+        document.getElementById('step-password').style.display = '';
+
+        if (isNewUser) {
+          document.getElementById('student-info-msg').textContent =
+            `${r.name}님, 처음 접속이시네요. 비밀번호를 설정해주세요.`;
+          document.getElementById('pw-label').textContent = '새 비밀번호';
+          document.getElementById('pw-confirm-group').style.display = '';
+          document.getElementById('btn-login').textContent = '비밀번호 설정';
+        } else {
+          document.getElementById('student-info-msg').textContent =
+            `${r.name}님, 비밀번호를 입력해주세요.`;
+          document.getElementById('pw-label').textContent = '비밀번호';
+          document.getElementById('pw-confirm-group').style.display = 'none';
+          document.getElementById('btn-login').textContent = '로그인';
+        }
+      } catch (err) {
+        showAlert('서버 오류: ' + err.message, 'error');
+      } finally {
+        setLoading('btn-check', false);
+      }
+    }
+
+    function backToCheck() {
+      document.getElementById('step-check').style.display = '';
+      document.getElementById('step-password').style.display = 'none';
+      document.getElementById('step-course').style.display = 'none';
+      document.getElementById('student-pw').value = '';
+      document.getElementById('student-pw-confirm').value = '';
+      clearAlert();
+    }
+
+    async function studentLogin() {
+      const pw = document.getElementById('student-pw').value;
+      if (!pw) { showAlert('비밀번호를 입력해주세요.', 'error'); return; }
+
+      clearAlert();
+
+      if (isNewUser) {
+        if (pw.length < 4) { showAlert('비밀번호는 최소 4자 이상이어야 합니다.', 'error'); return; }
+        const pwConfirm = document.getElementById('student-pw-confirm').value;
+        if (pw !== pwConfirm) { showAlert('비밀번호가 일치하지 않습니다.', 'error'); return; }
+
+        setLoading('btn-login', true);
+        try {
+          const r = await API.registerPassword(currentStudentId, pw, selectedCourseId);
+          if (!r.success) { showAlert(r.error, 'error'); return; }
+
+          // 비밀번호 설정 후 바로 로그인
+          Auth.saveSession({
+            role: 'student',
+            studentId: currentStudentId,
+            password: pw,
+            name: r.name,
+            department: r.department,
+            courseId: selectedCourseId,
+            courseName: selectedCourseName
+          });
+          window.location.href = 'student/dashboard.html';
+        } catch (err) {
+          showAlert('서버 오류: ' + err.message, 'error');
+        } finally {
+          setLoading('btn-login', false);
+        }
+      } else {
+        setLoading('btn-login', true);
+        try {
+          const r = await API.login(currentStudentId, pw, selectedCourseId);
+          if (!r.success) {
+            showAlert(r.error, 'error');
+            return;
+          }
+          Auth.saveSession({
+            role: 'student',
+            studentId: r.studentId,
+            password: pw,
+            name: r.name,
+            department: r.department,
+            courseId: selectedCourseId,
+            courseName: selectedCourseName
+          });
+          window.location.href = 'student/dashboard.html';
+        } catch (err) {
+          showAlert('서버 오류: ' + err.message, 'error');
+        } finally {
+          setLoading('btn-login', false);
+        }
+      }
+    }
+
+    let adminInitialPassword = ''; // 초기 비밀번호 변경 시 사용
+
+    async function adminLogin() {
+      const pw = document.getElementById('admin-pw').value;
+      if (!pw) { showAlert('비밀번호를 입력해주세요.', 'error'); return; }
+
+      clearAlert();
+      setLoading('btn-admin-login', true);
+      try {
+        const r = await API.adminLogin(pw);
+        if (!r.success) { showAlert(r.error, 'error'); return; }
+
+        // v2.0: 초기 비밀번호 → 강제 비밀번호 변경
+        if (r.needPasswordChange) {
+          adminInitialPassword = pw;
+          document.getElementById('admin-step-login').style.display = 'none';
+          document.getElementById('admin-step-change-pw').style.display = '';
+          clearAlert();
+          document.getElementById('admin-new-pw').focus();
+          return;
+        }
+
+        Auth.saveSession({
+          role: 'admin',
+          adminPassword: pw,
+          courseName: r.courseName,
+          semester: r.semester
+        });
+        window.location.href = 'admin/dashboard.html';
+      } catch (err) {
+        showAlert('서버 오류: ' + err.message, 'error');
+      } finally {
+        setLoading('btn-admin-login', false);
+      }
+    }
+
+    async function changeAdminPw() {
+      const newPw = document.getElementById('admin-new-pw').value;
+      const newPwConfirm = document.getElementById('admin-new-pw-confirm').value;
+
+      if (!newPw) { showAlert('새 비밀번호를 입력해주세요.', 'error'); return; }
+      if (newPw.length < 4) { showAlert('비밀번호는 최소 4자 이상이어야 합니다.', 'error'); return; }
+      if (newPw !== newPwConfirm) { showAlert('비밀번호가 일치하지 않습니다.', 'error'); return; }
+
+      clearAlert();
+      setLoading('btn-change-pw', true);
+      try {
+        const r = await API.changeAdminPassword(adminInitialPassword, newPw);
+        if (!r.success) { showAlert(r.error, 'error'); return; }
+
+        // 비밀번호 변경 성공 → 새 비밀번호로 세션 저장 후 대시보드 이동
+        const loginResult = await API.adminLogin(newPw);
+        Auth.saveSession({
+          role: 'admin',
+          adminPassword: newPw,
+          courseName: loginResult.courseName || '',
+          semester: loginResult.semester || ''
+        });
+        window.location.href = 'admin/dashboard.html';
+      } catch (err) {
+        showAlert('서버 오류: ' + err.message, 'error');
+      } finally {
+        setLoading('btn-change-pw', false);
+      }
+    }
+
+    // Enter 키 처리
+    document.getElementById('student-id').addEventListener('keydown', e => {
+      if (e.key === 'Enter') checkStudentId();
+    });
+    document.getElementById('student-pw').addEventListener('keydown', e => {
+      if (e.key === 'Enter') studentLogin();
+    });
+    document.getElementById('admin-pw').addEventListener('keydown', e => {
+      if (e.key === 'Enter') adminLogin();
+    });
+    document.getElementById('admin-new-pw').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('admin-new-pw-confirm').focus();
+    });
+    document.getElementById('admin-new-pw-confirm').addEventListener('keydown', e => {
+      if (e.key === 'Enter') changeAdminPw();
+    });
+  </script>
+</body>
+</html>

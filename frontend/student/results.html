@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>내 결과 - 상호평가</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <div class="app-header">
+      <h1>상호평가 시스템</h1>
+      <div class="user-info">
+        <span id="user-name"></span>
+        <button class="btn-logout" onclick="Auth.logout()">로그아웃</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <a href="dashboard.html" class="btn btn-secondary btn-sm">&larr; 대시보드로</a>
+    </div>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <span>결과를 불러오는 중...</span>
+    </div>
+    <div id="content"></div>
+  </div>
+
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script>
+    if (!Auth.requireStudent()) throw new Error('Redirect');
+    document.getElementById('user-name').textContent = Auth.getUserName() + ' (' + Auth.getStudentId() + ')';
+
+    const params = new URLSearchParams(window.location.search);
+    const assignmentId = params.get('id');
+
+    async function loadResults() {
+      const loading = document.getElementById('loading');
+      const content = document.getElementById('content');
+
+      try {
+        const r = await API.getMyResults(Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId());
+        loading.style.display = 'none';
+
+        if (!r.success) {
+          content.innerHTML = `<div class="alert alert-error">${r.error}</div>`;
+          return;
+        }
+
+        // 특정 과제 필터 또는 전체
+        let results = r.results;
+        if (assignmentId) {
+          results = results.filter(res => res.assignmentId === assignmentId);
+        }
+
+        if (results.length === 0) {
+          content.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>확정된 결과가 없습니다.</p></div>';
+          return;
+        }
+
+        let html = '';
+        results.forEach(res => {
+          const avgScore = res.receivedScores.length > 0
+            ? (res.receivedScores.reduce((s, e) => s + Number(e.score), 0) / res.receivedScores.length).toFixed(1)
+            : '-';
+
+          html += `<div class="card">
+            <div class="card-title">${escapeHtml(res.assignmentName)}</div>
+
+            <div class="grid-3" style="margin-bottom:20px;">
+              <div class="stat-card">
+                <div class="stat-value">${avgScore}</div>
+                <div class="stat-label">상호평가 평균</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${res.professorScore !== null ? res.professorScore : '-'}</div>
+                <div class="stat-label">교수 평가</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${res.receivedScores.length}</div>
+                <div class="stat-label">평가 받은 수</div>
+              </div>
+            </div>
+
+            <h4 style="font-size:0.9rem;color:var(--gray-600);margin-bottom:12px;">상호평가 상세</h4>
+          `;
+
+          res.receivedScores.forEach((ev, idx) => {
+            html += `
+              <div class="result-item">
+                <div class="score-label">익명 평가자 ${idx + 1}</div>
+                <div class="score-value">${ev.score}점</div>
+                <div class="comment-text">${escapeHtml(ev.comment)}</div>
+              </div>
+            `;
+          });
+
+          if (res.professorScore !== null) {
+            html += `
+              <h4 style="font-size:0.9rem;color:var(--gray-600);margin:16px 0 12px;">교수 평가</h4>
+              <div class="result-item professor-eval">
+                <div class="score-label">교수</div>
+                <div class="score-value">${res.professorScore}점</div>
+                <div class="comment-text">${escapeHtml(res.professorComment || '')}</div>
+              </div>
+            `;
+          }
+
+          html += '</div>';
+        });
+        content.innerHTML = html;
+      } catch (err) {
+        loading.style.display = 'none';
+        content.innerHTML = `<div class="alert alert-error">오류: ${err.message}</div>`;
+      }
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text || '';
+      return d.innerHTML;
+    }
+
+    loadResults();
+  </script>
+</body>
+</html>
