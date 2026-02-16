@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>교수 대시보드 - 상호평가</title>
-  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/style.css?v=20260216">
 </head>
 <body>
   <div class="app-container">
@@ -144,8 +147,8 @@
     </div>
   </div>
 
-  <script src="../js/api.js"></script>
-  <script src="../js/auth.js"></script>
+  <script src="../js/api.js?v=20260216"></script>
+  <script src="../js/auth.js?v=20260216"></script>
   <script>
     if (!Auth.requireAdmin()) throw new Error('Redirect');
 
@@ -157,8 +160,21 @@
     let currentAssignments = [];
     let currentAssignmentId = '';
 
-    // ── v2.1: 현재 선택된 과목 관리 ──
+    // ── v2.2: 현재 선택된 과목 관리 (localStorage 사용, sessionStorage→localStorage 마이그레이션 포함) ──
     const SELECTED_COURSE_KEY = 'cross_eval_selected_course';
+
+    // 마이그레이션: sessionStorage에 있던 데이터를 localStorage로 복사
+    (function migrateSessionToLocal() {
+      const fromSession = sessionStorage.getItem(SELECTED_COURSE_KEY);
+      const fromLocal = localStorage.getItem(SELECTED_COURSE_KEY);
+      if (fromSession && !fromLocal) {
+        localStorage.setItem(SELECTED_COURSE_KEY, fromSession);
+      }
+      // sessionStorage 정리
+      if (fromSession) {
+        sessionStorage.removeItem(SELECTED_COURSE_KEY);
+      }
+    })();
 
     function getSelectedCourse() {
       const raw = localStorage.getItem(SELECTED_COURSE_KEY);
