@@ -213,6 +213,8 @@ function doPost(e) {
 
       // 학생용
       case 'get_my_assignments': result = handleGetMyAssignments(payload); break;
+      case 'submit_assignment': result = handleSubmitAssignment(payload); break;
+      case 'get_submission': result = handleGetSubmission(payload); break;
       case 'get_evaluation_targets': result = handleGetEvaluationTargets(payload); break;
       case 'submit_evaluation': result = handleSubmitEvaluation(payload); break;
       case 'get_my_results': result = handleGetMyResults(payload); break;
@@ -476,6 +478,24 @@ function handleGetMyAssignments(payload) {
       }
     }
 
+    // 제출 상태 확인
+    let mySubmission = null;
+    if (status === '대기' || status === '제출중' || status === '평가중' || status === '평가완료' || status === '확정') {
+      const submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
+      if (submitSheet) {
+        const submitData = submitSheet.getDataRange().getValues();
+        for (let j = submitData.length - 1; j >= 1; j--) {
+          if (String(submitData[j][2]).trim() === studentId && submitData[j][6] === 'Y') {
+            mySubmission = {
+              link: submitData[j][5],
+              timestamp: submitData[j][0]
+            };
+            break;
+          }
+        }
+      }
+    }
+
     assignments.push({
       assignmentId: assignmentId,
       name: data[i][1],
@@ -486,11 +506,140 @@ function handleGetMyAssignments(payload) {
       criteria: data[i][7],
       minScore: data[i][8],
       maxScore: data[i][9],
-      myEvalStatus: myEvalStatus
+      myEvalStatus: myEvalStatus,
+      mySubmission: mySubmission
     });
   }
 
   return { success: true, assignments: assignments };
+}
+
+// ─── 과제 제출 (학생) ───
+function handleSubmitAssignment(payload) {
+  const studentId = String(payload.studentId).trim();
+  const courseId = requireCourseId(payload.courseId);
+  const authResult = verifyStudent(studentId, payload.password, courseId);
+  if (!authResult.success) return authResult;
+
+  const assignmentId = payload.assignmentId;
+  var link = (payload.link || '').trim();
+
+  if (!assignmentId) return { success: false, error: '과제 ID가 필요합니다.' };
+  if (!link) return { success: false, error: '제출 링크를 입력해주세요.' };
+
+  // URL 기본 검증
+  if (!link.match(/^https?:\/\//i)) {
+    return { success: false, error: 'URL은 http:// 또는 https:// 로 시작해야 합니다.' };
+  }
+
+  // 과제 상태 확인
+  const assignment = getAssignmentInfo(assignmentId, courseId);
+  if (!assignment) return { success: false, error: '과제를 찾을 수 없습니다.' };
+
+  // 제출 가능한 상태인지 확인 (대기 또는 제출중)
+  if (assignment.status !== '대기' && assignment.status !== '제출중') {
+    return { success: false, error: '현재 제출 기간이 아닙니다. (상태: ' + assignment.status + ')' };
+  }
+
+  // 마감일 확인
+  if (assignment.submitDeadline) {
+    var deadline = new Date(assignment.submitDeadline);
+    if (!isNaN(deadline.getTime()) && new Date() > deadline) {
+      return { success: false, error: '제출 마감일이 지났습니다.' };
+    }
+  }
+
+  // URL 접근 가능 여부 확인
+  try {
+    var response = UrlFetchApp.fetch(link, {
+      method: 'get',
+      followRedirects: true,
+      muteHttpExceptions: true
+    });
+    var code = response.getResponseCode();
+    if (code >= 400) {
+      return {
+        success: false,
+        error: '제출한 URL에 접근할 수 없습니다 (HTTP ' + code + '). 공유 설정을 확인해주세요.'
+      };
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: 'URL에 접근할 수 없습니다: ' + e.message + '\n링크가 올바른지, 공유 설정이 되어있는지 확인해주세요.'
+    };
+  }
+
+  // 학생 이름 가져오기
+  var studentName = '';
+  var studentSheet = getCourseSheet(courseId, '학생_마스터');
+  if (studentSheet) {
+    var sData = studentSheet.getDataRange().getValues();
+    for (var k = 1; k < sData.length; k++) {
+      if (String(sData[k][0]).trim() === studentId) {
+        studentName = sData[k][1];
+        break;
+      }
+    }
+  }
+
+  // 제출 시트에 기록
+  var submitSheet = getOrCreateCourseSheet(courseId, assignmentId + '_제출', [
+    '타임스탬프', '이메일', '학번', '이름', '학과', '제출파일_링크', '유효'
+  ]);
+  var submitData = submitSheet.getDataRange().getValues();
+
+  // 기존 유효 제출을 N으로 변경
+  for (var j = 1; j < submitData.length; j++) {
+    if (String(submitData[j][2]).trim() === studentId && submitData[j][6] === 'Y') {
+      submitSheet.getRange(j + 1, 7).setValue('N');
+    }
+  }
+
+  // 새 행 추가
+  submitSheet.appendRow([
+    new Date().toISOString(),
+    '', // 이메일
+    studentId,
+    studentName,
+    '', // 학과
+    link,
+    'Y'
+  ]);
+
+  return {
+    success: true,
+    message: '과제가 성공적으로 제출되었습니다.',
+    submission: { link: link, timestamp: new Date().toISOString() }
+  };
+}
+
+function handleGetSubmission(payload) {
+  var studentId = String(payload.studentId).trim();
+  var courseId = requireCourseId(payload.courseId);
+  var authResult = verifyStudent(studentId, payload.password, courseId);
+  if (!authResult.success) return authResult;
+
+  var assignmentId = payload.assignmentId;
+  if (!assignmentId) return { success: false, error: '과제 ID가 필요합니다.' };
+
+  var submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
+  if (!submitSheet) return { success: true, submission: null };
+
+  var data = submitSheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][2]).trim() === studentId && data[i][6] === 'Y') {
+      return {
+        success: true,
+        submission: {
+          link: data[i][5],
+          timestamp: data[i][0]
+        }
+      };
+    }
+  }
+
+  return { success: true, submission: null };
 }
 
 function handleGetEvaluationTargets(payload) {
@@ -727,8 +876,8 @@ function handleCreateAssignment(payload) {
     payload.description || '',
     payload.submitDeadline || '',
     '', // 평가마감일시 (나중에 설정)
-    '대기',
-    '', // Google Form URL (나중에 설정 또는 자동 생성)
+    '제출중',
+    '', // Google Form URL (사용 안 함)
     payload.criteria || '',
     payload.minScore || 0,
     payload.maxScore || 100

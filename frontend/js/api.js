@@ -98,6 +98,14 @@ const API = (() => {
     });
   }
 
+  function submitAssignment(studentId, password, courseId, assignmentId, link) {
+    return call({ action: 'submit_assignment', studentId, password, courseId, assignmentId, link });
+  }
+
+  function getSubmission(studentId, password, courseId, assignmentId) {
+    return call({ action: 'get_submission', studentId, password, courseId, assignmentId });
+  }
+
   function getMyResults(studentId, password, courseId) {
     return call({ action: 'get_my_results', studentId, password, courseId });
   }
@@ -170,7 +178,7 @@ const API = (() => {
   return {
     getActiveCourses,
     checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
-    getMyAssignments, getEvaluationTargets, submitEvaluation, getMyResults,
+    getMyAssignments, submitAssignment, getSubmission, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
     submitProfessorEval, finalizeAssignment, getAllResults,
     registerStudents, getAssignmentsList, resetPassword, getStudentsList,

@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>학생 대시보드 - 상호평가</title>
-  <link rel="stylesheet" href="../css/style.css?v=20260216">
+  <link rel="stylesheet" href="../css/style.css?v=20260216b">
 </head>
 <body>
   <div class="app-container">
@@ -23,6 +23,8 @@
       <button class="nav-tab active" onclick="showSection('assignments')">과제 목록</button>
       <button class="nav-tab" onclick="showSection('results')">내 결과</button>
     </div>
+
+    <div id="alert-area"></div>
 
     <div id="section-assignments">
       <div id="assignments-loading" class="loading">
@@ -41,8 +43,8 @@
     </div>
   </div>
 
-  <script src="../js/api.js?v=20260216"></script>
-  <script src="../js/auth.js?v=20260216"></script>
+  <script src="../js/api.js?v=20260216b"></script>
+  <script src="../js/auth.js?v=20260216b"></script>
   <script>
     if (!Auth.requireStudent()) throw new Error('Redirect');
 
@@ -54,9 +56,20 @@
       });
       document.getElementById('section-assignments').style.display = name === 'assignments' ? '' : 'none';
       document.getElementById('section-results').style.display = name === 'results' ? '' : 'none';
-
+      clearAlert();
       if (name === 'assignments') loadAssignments();
       if (name === 'results') loadResults();
+    }
+
+    function showAlert(msg, type) {
+      document.getElementById('alert-area').innerHTML = '<div class="alert alert-' + type + '">' + msg + '</div>';
+    }
+    function clearAlert() { document.getElementById('alert-area').innerHTML = ''; }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text || '';
+      return d.innerHTML;
     }
 
     function getStatusBadge(status) {
@@ -67,9 +80,25 @@
         '평가완료': 'badge-eval-done',
         '확정': 'badge-finalized'
       };
-      return `<span class="badge ${map[status] || 'badge-waiting'}">${status}</span>`;
+      return '<span class="badge ' + (map[status] || 'badge-waiting') + '">' + status + '</span>';
     }
 
+    // ─── 마감 여부 판단 ───
+    function isBeforeDeadline(deadlineStr) {
+      if (!deadlineStr) return true; // 마감일 미설정이면 제출 가능
+      const d = new Date(deadlineStr);
+      if (isNaN(d.getTime())) return true;
+      return new Date() <= d;
+    }
+
+    function formatDeadline(deadlineStr) {
+      if (!deadlineStr) return '미정';
+      const d = new Date(deadlineStr);
+      if (isNaN(d.getTime())) return String(deadlineStr);
+      return d.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    // ─── 과제 목록 ───
     async function loadAssignments() {
       const container = document.getElementById('assignments-list');
       const loading = document.getElementById('assignments-loading');
@@ -80,7 +109,7 @@
         const r = await API.getMyAssignments(Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId());
         loading.style.display = 'none';
 
-        if (!r.success) { container.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }
+        if (!r.success) { container.innerHTML = '<div class="alert alert-error">' + escapeHtml(r.error) + '</div>'; return; }
         if (r.assignments.length === 0) {
           container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>등록된 과제가 없습니다.</p></div>';
           return;
@@ -88,46 +117,207 @@
 
         let html = '';
         r.assignments.forEach(a => {
-          let actionHtml = '';
-          if (a.status === '평가중') {
-            if (a.myEvalStatus === 'completed') {
-              actionHtml = '<span class="badge badge-finalized">평가 완료</span>';
-            } else if (a.myEvalStatus === 'pending') {
-              actionHtml = `<a href="evaluate.html?id=${a.assignmentId}" class="btn btn-primary btn-sm">평가하기</a>`;
-            } else {
-              actionHtml = '<span class="badge badge-waiting">미배정</span>';
-            }
-          } else if (a.status === '확정') {
-            actionHtml = `<a href="results.html?id=${a.assignmentId}" class="btn btn-secondary btn-sm">결과 보기</a>`;
-          }
-
-          html += `
-            <div class="card">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
-                <div>
-                  <h3 style="font-size:1.05rem;margin-bottom:4px;">${a.name}</h3>
-                  <p style="font-size:0.8125rem;color:var(--gray-500);">${a.description || ''}</p>
-                </div>
-                <div style="text-align:right;">
-                  ${getStatusBadge(a.status)}
-                </div>
-              </div>
-              <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-                <div style="font-size:0.8125rem;color:var(--gray-500);">
-                  ${a.status === '평가중' ? '평가 마감: ' + (a.evalDeadline || '-') : '제출 마감: ' + (a.submitDeadline || '-')}
-                </div>
-                <div>${actionHtml}</div>
-              </div>
-            </div>
-          `;
+          html += renderAssignmentCard(a);
         });
         container.innerHTML = html;
       } catch (err) {
         loading.style.display = 'none';
-        container.innerHTML = `<div class="alert alert-error">오류: ${err.message}</div>`;
+        container.innerHTML = '<div class="alert alert-error">오류: ' + escapeHtml(err.message) + '</div>';
       }
     }
 
+    function renderAssignmentCard(a) {
+      const canSubmit = (a.status === '대기' || a.status === '제출중') && isBeforeDeadline(a.submitDeadline);
+      const hasSubmitted = a.mySubmission !== null;
+      const deadlinePassed = !isBeforeDeadline(a.submitDeadline);
+
+      let html = '<div class="card" style="margin-bottom:16px;">';
+
+      // ── 헤더: 과제명 + 상태 뱃지 ──
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:12px;">';
+      html += '  <h3 style="font-size:1.1rem;margin:0;">' + escapeHtml(a.name) + '</h3>';
+      html += '  <div>' + getStatusBadge(a.status) + '</div>';
+      html += '</div>';
+
+      // ── 제출중/대기 상태: 상세 정보 + 제출 UI ──
+      if (a.status === '대기' || a.status === '제출중') {
+
+        // 과제 설명
+        if (a.description) {
+          html += '<div style="background:var(--gray-50);border-radius:8px;padding:12px;margin-bottom:12px;">';
+          html += '  <div style="font-size:0.8125rem;font-weight:600;color:var(--gray-500);margin-bottom:4px;">과제 설명</div>';
+          html += '  <div style="font-size:0.9rem;color:var(--gray-700);white-space:pre-wrap;">' + escapeHtml(a.description) + '</div>';
+          html += '</div>';
+        }
+
+        // 채점 기준
+        if (a.criteria) {
+          html += '<div style="background:#fef3c7;border-radius:8px;padding:12px;margin-bottom:12px;">';
+          html += '  <div style="font-size:0.8125rem;font-weight:600;color:#92400e;margin-bottom:4px;">채점 기준 (최대 ' + (a.maxScore || 100) + '점)</div>';
+          html += '  <div style="font-size:0.875rem;color:#78350f;white-space:pre-wrap;">' + escapeHtml(a.criteria) + '</div>';
+          html += '</div>';
+        }
+
+        // 마감일
+        html += '<div style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:12px;">';
+        html += '  제출 마감: <strong>' + formatDeadline(a.submitDeadline) + '</strong>';
+        if (deadlinePassed) {
+          html += ' <span style="color:var(--danger);font-weight:600;">(마감됨)</span>';
+        }
+        html += '</div>';
+
+        // 제출 상태 + UI
+        if (hasSubmitted && !canSubmit) {
+          // 마감 지남 + 이미 제출함
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#d1fae5;border-radius:8px;">';
+          html += '  <span class="badge badge-finalized">제출 완료</span>';
+          html += '  <a href="' + escapeHtml(a.mySubmission.link) + '" target="_blank" style="color:var(--primary);font-size:0.875rem;text-decoration:underline;">제출한 링크 보기</a>';
+          html += '</div>';
+        } else if (hasSubmitted && canSubmit) {
+          // 이미 제출 + 아직 마감 전 → 제출 완료 표시 + 다시 제출 버튼
+          html += '<div id="submission-status-' + a.assignmentId + '">';
+          html += '  <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#d1fae5;border-radius:8px;margin-bottom:8px;">';
+          html += '    <span class="badge badge-finalized">제출 완료</span>';
+          html += '    <a href="' + escapeHtml(a.mySubmission.link) + '" target="_blank" style="color:var(--primary);font-size:0.875rem;text-decoration:underline;">제출한 링크 보기</a>';
+          html += '  </div>';
+          html += '  <button class="btn btn-secondary btn-sm" onclick="showResubmitForm(\'' + a.assignmentId + '\')">다시 제출</button>';
+          html += '</div>';
+          // 숨겨진 재제출 폼
+          html += '<div id="resubmit-form-' + a.assignmentId + '" style="display:none;margin-top:8px;">';
+          html += renderSubmitForm(a.assignmentId);
+          html += '</div>';
+        } else if (!hasSubmitted && canSubmit) {
+          // 미제출 + 마감 전 → 제출 폼
+          html += '<div id="submit-form-' + a.assignmentId + '">';
+          html += renderSubmitForm(a.assignmentId);
+          html += '</div>';
+        } else {
+          // 미제출 + 마감 지남
+          html += '<div style="padding:8px 12px;background:#fee2e2;border-radius:8px;font-size:0.875rem;color:#991b1b;">';
+          html += '  미제출 (마감 시간이 지났습니다)';
+          html += '</div>';
+        }
+
+      } else if (a.status === '평가중') {
+        // ── 평가 중 상태 ──
+        if (a.description) {
+          html += '<p style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:8px;">' + escapeHtml(a.description) + '</p>';
+        }
+        html += '<div style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:8px;">평가 마감: ' + formatDeadline(a.evalDeadline) + '</div>';
+
+        if (hasSubmitted) {
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+          html += '  <span class="badge badge-finalized">제출 완료</span>';
+          html += '  <a href="' + escapeHtml(a.mySubmission.link) + '" target="_blank" style="color:var(--primary);font-size:0.8125rem;">내 제출물 보기</a>';
+          html += '</div>';
+        }
+
+        // 평가 액션
+        html += '<div style="margin-top:4px;">';
+        if (a.myEvalStatus === 'completed') {
+          html += '<span class="badge badge-finalized">평가 완료</span>';
+        } else if (a.myEvalStatus === 'pending') {
+          html += '<a href="evaluate.html?id=' + a.assignmentId + '" class="btn btn-primary btn-sm">평가하기</a>';
+        } else {
+          html += '<span class="badge badge-waiting">미배정</span>';
+        }
+        html += '</div>';
+
+      } else if (a.status === '확정') {
+        // ── 확정 상태 ──
+        if (a.description) {
+          html += '<p style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:8px;">' + escapeHtml(a.description) + '</p>';
+        }
+        if (hasSubmitted) {
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+          html += '  <span class="badge badge-finalized">제출 완료</span>';
+          html += '  <a href="' + escapeHtml(a.mySubmission.link) + '" target="_blank" style="color:var(--primary);font-size:0.8125rem;">내 제출물 보기</a>';
+          html += '</div>';
+        }
+        html += '<div style="margin-top:4px;">';
+        html += '  <a href="results.html?id=' + a.assignmentId + '" class="btn btn-secondary btn-sm">결과 보기</a>';
+        html += '</div>';
+
+      } else {
+        // 평가완료 등
+        if (a.description) {
+          html += '<p style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:8px;">' + escapeHtml(a.description) + '</p>';
+        }
+        html += '<div style="font-size:0.8125rem;color:var(--gray-500);">결과 확정 대기 중</div>';
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderSubmitForm(assignmentId) {
+      let html = '';
+      html += '<div style="border:1px solid var(--gray-200);border-radius:8px;padding:12px;background:white;">';
+      html += '  <div class="form-group" style="margin-bottom:8px;">';
+      html += '    <label for="submit-url-' + assignmentId + '" style="font-size:0.875rem;font-weight:600;">과제 문서 URL</label>';
+      html += '    <input type="url" id="submit-url-' + assignmentId + '" placeholder="https://docs.google.com/document/d/..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;font-size:0.875rem;">';
+      html += '  </div>';
+      html += '  <p style="font-size:0.75rem;color:var(--gray-500);margin-bottom:10px;">';
+      html += '    구글 문서/드라이브 링크를 입력하세요. <strong>반드시 "링크가 있는 모든 사용자" 또는 "@kookmin.ac.kr" 도메인에 읽기 권한</strong>을 부여해주세요.';
+      html += '  </p>';
+      html += '  <button class="btn btn-primary btn-sm" id="btn-submit-' + assignmentId + '" onclick="submitAssignmentAction(\'' + assignmentId + '\')">제출하기</button>';
+      html += '  <span id="submit-status-' + assignmentId + '" style="margin-left:8px;font-size:0.8125rem;"></span>';
+      html += '</div>';
+      return html;
+    }
+
+    function showResubmitForm(assignmentId) {
+      var statusEl = document.getElementById('submission-status-' + assignmentId);
+      var formEl = document.getElementById('resubmit-form-' + assignmentId);
+      if (statusEl) statusEl.style.display = 'none';
+      if (formEl) formEl.style.display = '';
+    }
+
+    async function submitAssignmentAction(assignmentId) {
+      var urlInput = document.getElementById('submit-url-' + assignmentId);
+      var btn = document.getElementById('btn-submit-' + assignmentId);
+      var status = document.getElementById('submit-status-' + assignmentId);
+      var link = urlInput.value.trim();
+
+      if (!link) {
+        status.textContent = 'URL을 입력해주세요.';
+        status.style.color = 'var(--danger)';
+        return;
+      }
+
+      if (!link.match(/^https?:\/\//i)) {
+        status.textContent = 'http:// 또는 https://로 시작하는 URL을 입력해주세요.';
+        status.style.color = 'var(--danger)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '제출 중...';
+      status.textContent = '';
+
+      try {
+        var r = await API.submitAssignment(
+          Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId(),
+          assignmentId, link
+        );
+        if (r.success) {
+          showAlert(r.message, 'success');
+          // 과제 목록 새로고침
+          loadAssignments();
+        } else {
+          status.textContent = r.error;
+          status.style.color = 'var(--danger)';
+        }
+      } catch (err) {
+        status.textContent = '오류: ' + err.message;
+        status.style.color = 'var(--danger)';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '제출하기';
+      }
+    }
+
+    // ─── 결과 보기 ───
     async function loadResults() {
       const container = document.getElementById('results-list');
       const loading = document.getElementById('results-loading');
@@ -138,7 +328,7 @@
         const r = await API.getMyResults(Auth.getStudentId(), Auth.getPassword(), Auth.getCourseId());
         loading.style.display = 'none';
 
-        if (!r.success) { container.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }
+        if (!r.success) { container.innerHTML = '<div class="alert alert-error">' + escapeHtml(r.error) + '</div>'; return; }
         if (r.results.length === 0) {
           container.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>확정된 결과가 아직 없습니다.</p></div>';
           return;
@@ -150,30 +340,23 @@
             ? (res.receivedScores.reduce((s, e) => s + Number(e.score), 0) / res.receivedScores.length).toFixed(1)
             : '-';
 
-          html += `<div class="card">
-            <div class="card-title">${res.assignmentName}</div>
-
-            <h4 style="font-size:0.9rem;color:var(--gray-600);margin-bottom:12px;">받은 평가 (상호평가 평균: ${avgScore}점)</h4>
-          `;
+          html += '<div class="card"><div class="card-title">' + escapeHtml(res.assignmentName) + '</div>';
+          html += '<h4 style="font-size:0.9rem;color:var(--gray-600);margin-bottom:12px;">받은 평가 (상호평가 평균: ' + avgScore + '점)</h4>';
 
           res.receivedScores.forEach((ev, idx) => {
-            html += `
-              <div class="result-item">
-                <div class="score-label">평가 ${idx + 1}</div>
-                <div class="score-value">${ev.score}점</div>
-                <div class="comment-text">${escapeHtml(ev.comment)}</div>
-              </div>
-            `;
+            html += '<div class="result-item">';
+            html += '  <div class="score-label">평가 ' + (idx + 1) + '</div>';
+            html += '  <div class="score-value">' + ev.score + '점</div>';
+            html += '  <div class="comment-text">' + escapeHtml(ev.comment) + '</div>';
+            html += '</div>';
           });
 
           if (res.professorScore !== null) {
-            html += `
-              <div class="result-item professor-eval">
-                <div class="score-label">교수 평가</div>
-                <div class="score-value">${res.professorScore}점</div>
-                <div class="comment-text">${escapeHtml(res.professorComment || '')}</div>
-              </div>
-            `;
+            html += '<div class="result-item professor-eval">';
+            html += '  <div class="score-label">교수 평가</div>';
+            html += '  <div class="score-value">' + res.professorScore + '점</div>';
+            html += '  <div class="comment-text">' + escapeHtml(res.professorComment || '') + '</div>';
+            html += '</div>';
           }
 
           html += '</div>';
@@ -181,14 +364,8 @@
         container.innerHTML = html;
       } catch (err) {
         loading.style.display = 'none';
-        container.innerHTML = `<div class="alert alert-error">오류: ${err.message}</div>`;
+        container.innerHTML = '<div class="alert alert-error">오류: ' + escapeHtml(err.message) + '</div>';
       }
-    }
-
-    function escapeHtml(text) {
-      const d = document.createElement('div');
-      d.textContent = text || '';
-      return d.innerHTML;
     }
 
     // 초기 로드
