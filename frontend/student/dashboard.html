@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>학생 대시보드 - 상호평가</title>
-  <link rel="stylesheet" href="../css/style.css?v=20260216c">
+  <link rel="stylesheet" href="../css/style.css?v=20260216d">
 </head>
 <body>
   <div class="app-container">
@@ -43,8 +43,8 @@
     </div>
   </div>
 
-  <script src="../js/api.js?v=20260216c"></script>
-  <script src="../js/auth.js?v=20260216c"></script>
+  <script src="../js/api.js?v=20260216d"></script>
+  <script src="../js/auth.js?v=20260216d"></script>
   <script>
     if (!Auth.requireStudent()) throw new Error('Redirect');
 
@@ -95,7 +95,7 @@
       if (!deadlineStr) return '미정';
       const d = new Date(deadlineStr);
       if (isNaN(d.getTime())) return String(deadlineStr);
-      return d.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+      return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
     }
 
     // ─── 과제 목록 ───
@@ -321,7 +321,7 @@
       }
     }
 
-    // ─── 결과 보기 ───
+    // ─── 결과 보기 (v2.3: 모든 과제 상태 표시) ───
     async function loadResults() {
       const container = document.getElementById('results-list');
       const loading = document.getElementById('results-loading');
@@ -334,33 +334,89 @@
 
         if (!r.success) { container.innerHTML = '<div class="alert alert-error">' + escapeHtml(r.error) + '</div>'; return; }
         if (r.results.length === 0) {
-          container.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>확정된 결과가 아직 없습니다.</p></div>';
+          container.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>등록된 과제가 없습니다.</p></div>';
           return;
         }
 
         let html = '';
         r.results.forEach(res => {
-          const avgScore = res.receivedScores.length > 0
-            ? (res.receivedScores.reduce((s, e) => s + Number(e.score), 0) / res.receivedScores.length).toFixed(1)
-            : '-';
+          html += '<div class="card" style="margin-bottom:12px;">';
 
-          html += '<div class="card"><div class="card-title">' + escapeHtml(res.assignmentName) + '</div>';
-          html += '<h4 style="font-size:0.9rem;color:var(--gray-600);margin-bottom:12px;">받은 평가 (상호평가 평균: ' + avgScore + '점)</h4>';
-
-          res.receivedScores.forEach((ev, idx) => {
-            html += '<div class="result-item">';
-            html += '  <div class="score-label">평가 ' + (idx + 1) + '</div>';
-            html += '  <div class="score-value">' + ev.score + '점</div>';
-            html += '  <div class="comment-text">' + escapeHtml(ev.comment) + '</div>';
+          if (res.status === '제출중') {
+            // 제출 진행 중
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+            html += '  <span style="font-size:1.1rem;">📋</span>';
+            html += '  <h3 style="font-size:1rem;margin:0;">' + escapeHtml(res.assignmentName) + '</h3>';
+            html += '  ' + getStatusBadge('제출중');
             html += '</div>';
-          });
+            html += '<div style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:4px;">제출 마감: ' + formatDeadline(res.submitDeadline) + '</div>';
+            if (!res.submitted) {
+              html += '<div style="font-size:0.875rem;color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:6px;">아직 제출하지 않았습니다.</div>';
+            } else {
+              html += '<div style="font-size:0.875rem;color:#065f46;background:#d1fae5;padding:8px 12px;border-radius:6px;">✅ 제출 완료</div>';
+            }
 
-          if (res.professorScore !== null) {
-            html += '<div class="result-item professor-eval">';
-            html += '  <div class="score-label">교수 평가</div>';
-            html += '  <div class="score-value">' + res.professorScore + '점</div>';
-            html += '  <div class="comment-text">' + escapeHtml(res.professorComment || '') + '</div>';
+          } else if (res.status === '평가중') {
+            // 상호평가 진행 중
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+            html += '  <span style="font-size:1.1rem;">📝</span>';
+            html += '  <h3 style="font-size:1rem;margin:0;">' + escapeHtml(res.assignmentName) + '</h3>';
+            html += '  ' + getStatusBadge('평가중');
             html += '</div>';
+            html += '<div style="font-size:0.8125rem;color:var(--gray-500);margin-bottom:4px;">평가 마감: ' + formatDeadline(res.evalDeadline) + '</div>';
+            if (!res.submitted) {
+              html += '<div style="font-size:0.875rem;color:#991b1b;background:#fee2e2;padding:8px 12px;border-radius:6px;">미제출 — 이 과제는 제출하지 않아 상호평가에서 제외되었습니다.</div>';
+            } else {
+              html += '<div style="font-size:0.875rem;color:#1e40af;background:#dbeafe;padding:8px 12px;border-radius:6px;">평가가 종료되고 교수가 결과를 확정하면 점수를 확인할 수 있습니다.</div>';
+            }
+
+          } else if (res.status === '평가완료') {
+            // 교수 확정 대기
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+            html += '  <span style="font-size:1.1rem;">⏳</span>';
+            html += '  <h3 style="font-size:1rem;margin:0;">' + escapeHtml(res.assignmentName) + '</h3>';
+            html += '  ' + getStatusBadge('평가완료');
+            html += '</div>';
+            if (!res.submitted) {
+              html += '<div style="font-size:0.875rem;color:#991b1b;background:#fee2e2;padding:8px 12px;border-radius:6px;">미제출 종료 — 이 과제는 제출하지 않아 평가 결과가 없습니다.</div>';
+            } else {
+              html += '<div style="font-size:0.875rem;color:#1e40af;background:#dbeafe;padding:8px 12px;border-radius:6px;">교수가 결과를 확정하면 평가 결과를 확인할 수 있습니다.</div>';
+            }
+
+          } else if (res.status === '확정') {
+            // 확정 — 결과 표시
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+            html += '  <span style="font-size:1.1rem;">✅</span>';
+            html += '  <h3 style="font-size:1rem;margin:0;">' + escapeHtml(res.assignmentName) + '</h3>';
+            html += '  ' + getStatusBadge('확정');
+            html += '</div>';
+
+            if (!res.submitted) {
+              html += '<div style="font-size:0.875rem;color:#991b1b;background:#fee2e2;padding:8px 12px;border-radius:6px;">미제출 종료 — 이 과제는 제출하지 않아 평가 결과가 없습니다.</div>';
+            } else {
+              // 받은 평가 점수
+              const avgScore = res.receivedScores.length > 0
+                ? (res.receivedScores.reduce((s, e) => s + Number(e.score), 0) / res.receivedScores.length).toFixed(1)
+                : '-';
+
+              html += '<h4 style="font-size:0.9rem;color:var(--gray-600);margin-bottom:12px;">받은 평가 (상호평가 평균: ' + avgScore + '점)</h4>';
+
+              res.receivedScores.forEach((ev, idx) => {
+                html += '<div class="result-item">';
+                html += '  <div class="score-label">평가 ' + (idx + 1) + '</div>';
+                html += '  <div class="score-value">' + ev.score + '점</div>';
+                html += '  <div class="comment-text">' + escapeHtml(ev.comment) + '</div>';
+                html += '</div>';
+              });
+
+              if (res.professorScore !== null) {
+                html += '<div class="result-item professor-eval">';
+                html += '  <div class="score-label">교수 평가</div>';
+                html += '  <div class="score-value">' + res.professorScore + '점</div>';
+                html += '  <div class="comment-text">' + escapeHtml(res.professorComment || '') + '</div>';
+                html += '</div>';
+              }
+            }
           }
 
           html += '</div>';

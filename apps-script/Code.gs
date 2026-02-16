@@ -777,57 +777,60 @@ function handleGetMyResults(payload) {
     const assignmentId = assignData[i][0];
     const status = assignData[i][5];
 
-    if (status !== '확정') continue;
+    // v2.3: 모든 과제의 상태를 반환 (확정 전에도 진행 상황 표시)
+    var myResult = {
+      assignmentId: assignmentId,
+      assignmentName: assignData[i][1],
+      status: status,
+      submitDeadline: assignData[i][3],
+      evalDeadline: assignData[i][4],
+      submitted: false,
+      receivedScores: [],
+      professorScore: null,
+      professorComment: null
+    };
 
-    const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
-    if (!resultSheet) continue;
-
-    const resultData = resultSheet.getDataRange().getValues();
-    for (let j = 1; j < resultData.length; j++) {
-      if (String(resultData[j][0]).trim() === studentId) {
-        // 평가자 학번은 반환하지 않음 (익명성 보장)
-        const myResult = {
-          assignmentId: assignmentId,
-          assignmentName: assignData[i][1],
-          submittedAt: resultData[j][2],
-          submissionLink: resultData[j][3],
-          receivedScores: [],
-          givenEvaluations: [],
-          professorScore: resultData[j][19] !== '' ? resultData[j][19] : null,
-          professorComment: resultData[j][20] !== '' ? resultData[j][20] : null
-        };
-
-        // 받은 평가 (평가자 학번 비노출)
-        if (resultData[j][5] !== '' && resultData[j][5] !== null) {
-          myResult.receivedScores.push({ score: resultData[j][5], comment: resultData[j][6] });
+    // 제출 여부 확인
+    var submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
+    if (submitSheet) {
+      var submitData = submitSheet.getDataRange().getValues();
+      for (var s = submitData.length - 1; s >= 1; s--) {
+        if (String(submitData[s][2]).trim() === studentId && submitData[s][6] === 'Y') {
+          myResult.submitted = true;
+          myResult.submittedAt = submitData[s][0];
+          myResult.submissionLink = submitData[s][5];
+          break;
         }
-        if (resultData[j][8] !== '' && resultData[j][8] !== null) {
-          myResult.receivedScores.push({ score: resultData[j][8], comment: resultData[j][9] });
-        }
-        if (resultData[j][11] !== '' && resultData[j][11] !== null) {
-          myResult.receivedScores.push({ score: resultData[j][11], comment: resultData[j][12] });
-        }
-
-        // 내가 한 평가
-        if (resultData[j][13] !== '' && resultData[j][13] !== null) {
-          myResult.givenEvaluations.push({
-            targetStudentId: String(resultData[j][13]),
-            score: resultData[j][14],
-            comment: resultData[j][15]
-          });
-        }
-        if (resultData[j][16] !== '' && resultData[j][16] !== null) {
-          myResult.givenEvaluations.push({
-            targetStudentId: String(resultData[j][16]),
-            score: resultData[j][17],
-            comment: resultData[j][18]
-          });
-        }
-
-        results.push(myResult);
-        break;
       }
     }
+
+    // 확정 상태이고 제출한 경우에만 결과 데이터 포함
+    if (status === '확정' && myResult.submitted) {
+      var resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
+      if (resultSheet) {
+        var resultData = resultSheet.getDataRange().getValues();
+        for (var j = 1; j < resultData.length; j++) {
+          if (String(resultData[j][0]).trim() === studentId) {
+            myResult.professorScore = resultData[j][19] !== '' ? resultData[j][19] : null;
+            myResult.professorComment = resultData[j][20] !== '' ? resultData[j][20] : null;
+
+            // 받은 평가 (평가자 학번 비노출)
+            if (resultData[j][5] !== '' && resultData[j][5] !== null) {
+              myResult.receivedScores.push({ score: resultData[j][5], comment: resultData[j][6] });
+            }
+            if (resultData[j][8] !== '' && resultData[j][8] !== null) {
+              myResult.receivedScores.push({ score: resultData[j][8], comment: resultData[j][9] });
+            }
+            if (resultData[j][11] !== '' && resultData[j][11] !== null) {
+              myResult.receivedScores.push({ score: resultData[j][11], comment: resultData[j][12] });
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    results.push(myResult);
   }
 
   return { success: true, results: results };
@@ -979,6 +982,45 @@ function handleEndEvaluation(payload) {
 
   const assignmentId = payload.assignmentId;
   const courseId = requireCourseId(payload.courseId);
+
+  // v2.3: 교수 평가 완료 여부 체크 (force가 아닌 경우)
+  var assignInfo = getAssignmentInfo(assignmentId, courseId);
+  if (assignInfo && assignInfo.professorEval === 'Y' && !payload.force) {
+    var submitSheetCheck = getCourseSheet(courseId, assignmentId + '_제출');
+    var submittedIds = {};
+    if (submitSheetCheck) {
+      var sDataCheck = submitSheetCheck.getDataRange().getValues();
+      for (var sc = 1; sc < sDataCheck.length; sc++) {
+        if (sDataCheck[sc][6] === 'Y') {
+          submittedIds[String(sDataCheck[sc][2]).trim()] = true;
+        }
+      }
+    }
+    var profEvalSheetCheck = getCourseSheet(courseId, assignmentId + '_교수평가');
+    var profEvalledIds = {};
+    if (profEvalSheetCheck) {
+      var pDataCheck = profEvalSheetCheck.getDataRange().getValues();
+      for (var pc = 1; pc < pDataCheck.length; pc++) {
+        if (pDataCheck[pc][1] !== '' && pDataCheck[pc][1] !== null && pDataCheck[pc][1] !== undefined) {
+          profEvalledIds[String(pDataCheck[pc][0]).trim()] = true;
+        }
+      }
+    }
+    var missingProfEval = [];
+    var allSubmittedIds = Object.keys(submittedIds);
+    for (var mp = 0; mp < allSubmittedIds.length; mp++) {
+      if (!profEvalledIds[allSubmittedIds[mp]]) {
+        missingProfEval.push(allSubmittedIds[mp]);
+      }
+    }
+    if (missingProfEval.length > 0) {
+      return {
+        success: false,
+        error: '교수 평가가 완료되지 않은 학생이 ' + missingProfEval.length + '명 있습니다. 모든 교수 평가를 완료한 후 종료해주세요.',
+        missingProfEval: missingProfEval
+      };
+    }
+  }
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -1441,7 +1483,7 @@ function handleGetAssignmentsList(payload) {
   const data = sheet.getDataRange().getValues();
   const assignments = [];
   for (let i = 1; i < data.length; i++) {
-    assignments.push({
+    var aInfo = {
       assignmentId: data[i][0],
       name: data[i][1],
       description: data[i][2],
@@ -1453,7 +1495,40 @@ function handleGetAssignmentsList(payload) {
       minScore: data[i][8],
       maxScore: data[i][9],
       professorEval: data[i][10] || 'N'
-    });
+    };
+
+    // v2.3: 교수 평가 대상 과제는 교수 평가 완료 현황 포함
+    if (aInfo.professorEval === 'Y') {
+      var assignmentId = data[i][0];
+      // 제출 학생 수 확인
+      var submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
+      var submittedCount = 0;
+      if (submitSheet) {
+        var submitData = submitSheet.getDataRange().getValues();
+        var submittedIds = {};
+        for (var s = 1; s < submitData.length; s++) {
+          if (submitData[s][6] === 'Y') {
+            submittedIds[String(submitData[s][2]).trim()] = true;
+          }
+        }
+        submittedCount = Object.keys(submittedIds).length;
+      }
+      // 교수 평가 완료 수 확인
+      var profEvalCount = 0;
+      var profEvalSheet = getCourseSheet(courseId, assignmentId + '_교수평가');
+      if (profEvalSheet) {
+        var profData = profEvalSheet.getDataRange().getValues();
+        for (var p = 1; p < profData.length; p++) {
+          if (profData[p][1] !== '' && profData[p][1] !== null && profData[p][1] !== undefined) {
+            profEvalCount++;
+          }
+        }
+      }
+      aInfo.profEvalCompleted = profEvalCount;
+      aInfo.profEvalTotal = submittedCount;
+    }
+
+    assignments.push(aInfo);
   }
   return { success: true, assignments: assignments };
 }
