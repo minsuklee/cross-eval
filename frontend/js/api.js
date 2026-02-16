@@ -91,10 +91,10 @@ const API = (() => {
     return call({ action: 'get_evaluation_targets', studentId, password, assignmentId, courseId });
   }
 
-  function submitEvaluation(studentId, password, assignmentId, targetStudentId, score, comment, courseId) {
+  function submitEvaluation(studentId, password, assignmentId, targetIndex, score, comment, courseId) {
     return call({
       action: 'submit_evaluation',
-      studentId, password, assignmentId, targetStudentId, score, comment, courseId
+      studentId, password, assignmentId, targetIndex, score, comment, courseId
     });
   }
 

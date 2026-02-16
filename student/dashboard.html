@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>학생 대시보드 - 상호평가</title>
-  <link rel="stylesheet" href="../css/style.css?v=20260216b">
+  <link rel="stylesheet" href="../css/style.css?v=20260216c">
 </head>
 <body>
   <div class="app-container">
@@ -43,8 +43,8 @@
     </div>
   </div>
 
-  <script src="../js/api.js?v=20260216b"></script>
-  <script src="../js/auth.js?v=20260216b"></script>
+  <script src="../js/api.js?v=20260216c"></script>
+  <script src="../js/auth.js?v=20260216c"></script>
   <script>
     if (!Auth.requireStudent()) throw new Error('Redirect');
 
@@ -213,9 +213,10 @@
         }
 
         // 평가 액션
-        html += '<div style="margin-top:4px;">';
+        html += '<div style="margin-top:4px;display:flex;align-items:center;gap:8px;">';
         if (a.myEvalStatus === 'completed') {
           html += '<span class="badge badge-finalized">평가 완료</span>';
+          html += '<a href="evaluate.html?id=' + a.assignmentId + '" class="btn btn-secondary btn-sm">평가 수정</a>';
         } else if (a.myEvalStatus === 'pending') {
           html += '<a href="evaluate.html?id=' + a.assignmentId + '" class="btn btn-primary btn-sm">평가하기</a>';
         } else {
@@ -256,6 +257,9 @@
       html += '  <div class="form-group" style="margin-bottom:8px;">';
       html += '    <label for="submit-url-' + assignmentId + '" style="font-size:0.875rem;font-weight:600;">과제 문서 URL</label>';
       html += '    <input type="url" id="submit-url-' + assignmentId + '" placeholder="https://docs.google.com/document/d/..." style="width:100%;padding:8px 12px;border:1px solid var(--gray-300);border-radius:6px;font-size:0.875rem;">';
+      html += '  </div>';
+      html += '  <div style="font-size:0.75rem;color:#92400e;background:#fef3c7;padding:8px 10px;border-radius:6px;margin-bottom:8px;">';
+      html += '    ⚠ <strong>블라인드 평가 안내:</strong> 상호평가는 익명으로 진행됩니다. 과제 결과물에 <strong>이름, 학번 등 본인을 식별할 수 있는 표식을 포함하지 마세요.</strong>';
       html += '  </div>';
       html += '  <p style="font-size:0.75rem;color:var(--gray-500);margin-bottom:10px;">';
       html += '    구글 문서/드라이브 링크를 입력하세요. <strong>반드시 "링크가 있는 모든 사용자" 또는 "@kookmin.ac.kr" 도메인에 읽기 권한</strong>을 부여해주세요.';
