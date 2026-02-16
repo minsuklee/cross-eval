@@ -139,6 +139,10 @@ const API = (() => {
     return call({ action: 'get_all_results', adminPassword, assignmentId, courseId });
   }
 
+  function getSubmissionStatus(adminPassword, assignmentId, courseId) {
+    return call({ action: 'get_submission_status', adminPassword, assignmentId, courseId });
+  }
+
   function registerStudents(adminPassword, students, courseId) {
     return call({ action: 'register_students', adminPassword, students, courseId });
   }
@@ -180,7 +184,7 @@ const API = (() => {
     checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
     getMyAssignments, submitAssignment, getSubmission, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,
-    submitProfessorEval, finalizeAssignment, getAllResults,
+    submitProfessorEval, finalizeAssignment, getAllResults, getSubmissionStatus,
     registerStudents, getAssignmentsList, resetPassword, getStudentsList,
     removeStudent, createCourse, getCoursesList, deleteCourse, restoreCourse
   };

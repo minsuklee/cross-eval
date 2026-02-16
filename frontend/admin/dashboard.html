@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>교수 대시보드 - 상호평가</title>
-  <link rel="stylesheet" href="../css/style.css?v=20260216">
+  <link rel="stylesheet" href="../css/style.css?v=20260216c">
 </head>
 <body>
   <div class="app-container">
@@ -63,6 +63,11 @@
         <div class="form-group">
           <label for="new-criteria">채점 기준</label>
           <textarea id="new-criteria" placeholder="예: 1) 클래스 식별 적절성(30점) 2) 관계 표현 정확성(40점) ..."></textarea>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="new-prof-eval" style="width:auto;margin:0;">
+          <label for="new-prof-eval" style="margin:0;cursor:pointer;">교수도 평가</label>
+          <span style="font-size:0.8rem;color:var(--gray-500);">(체크하면 교수가 각 학생을 직접 평가합니다)</span>
         </div>
         <button class="btn btn-primary" onclick="createAssignment()" id="btn-create">과제 생성</button>
       </div>
@@ -147,8 +152,8 @@
     </div>
   </div>
 
-  <script src="../js/api.js?v=20260216"></script>
-  <script src="../js/auth.js?v=20260216"></script>
+  <script src="../js/api.js?v=20260216c"></script>
+  <script src="../js/auth.js?v=20260216c"></script>
   <script>
     if (!Auth.requireAdmin()) throw new Error('Redirect');
 
@@ -270,15 +275,20 @@
           let actions = '';
           switch (a.status) {
             case '대기':
-              actions = `<button class="btn btn-warning btn-sm" onclick="openStartEvalModal('${a.assignmentId}')">상호평가 시작</button>`;
+            case '제출중':
+              actions = `
+                <button class="btn btn-secondary btn-sm" onclick="showSubmissionStatus('${a.assignmentId}')">제출 현황</button>
+                <button class="btn btn-warning btn-sm" onclick="openStartEvalModal('${a.assignmentId}')">상호평가 시작</button>`;
               break;
             case '평가중':
               actions = `
+                <button class="btn btn-secondary btn-sm" onclick="showSubmissionStatus('${a.assignmentId}')">제출 현황</button>
                 <button class="btn btn-secondary btn-sm" onclick="showEvalStatus('${a.assignmentId}')">진행 현황</button>
                 <button class="btn btn-danger btn-sm" onclick="endEvaluation('${a.assignmentId}')">평가 종료</button>`;
               break;
             case '평가완료':
               actions = `
+                <button class="btn btn-secondary btn-sm" onclick="showSubmissionStatus('${a.assignmentId}')">제출 현황</button>
                 <button class="btn btn-secondary btn-sm" onclick="showProfessorEval('${a.assignmentId}')">교수 평가</button>
                 <button class="btn btn-success btn-sm" onclick="finalize('${a.assignmentId}')">확정</button>`;
               break;
@@ -327,7 +337,8 @@
           submitDeadline: document.getElementById('new-deadline').value,
           criteria: document.getElementById('new-criteria').value.trim(),
           minScore: 0,
-          maxScore: Number(document.getElementById('new-max').value) || 100
+          maxScore: Number(document.getElementById('new-max').value) || 100,
+          professorEval: document.getElementById('new-prof-eval').checked
         }, courseId);
 
         if (!r.success) { showAlert(r.error, 'error'); return; }
@@ -336,6 +347,7 @@
         // 폼 초기화
         ['new-name','new-desc','new-criteria'].forEach(id => document.getElementById(id).value = '');
         document.getElementById('new-deadline').value = '';
+        document.getElementById('new-prof-eval').checked = false;
 
         // 과제 목록 탭으로 이동
         setTimeout(() => showTab('assignments'), 1000);
@@ -377,6 +389,149 @@
         showAlert('오류: ' + err.message, 'error');
       } finally {
         btn.disabled = false; btn.textContent = '시작';
+      }
+    }
+
+    // ─── 제출 현황 ───
+    async function showSubmissionStatus(assignmentId) {
+      const detail = document.getElementById('detail-area');
+      detail.style.display = '';
+      detail.innerHTML = '<div class="loading"><div class="spinner"></div><span>제출 현황 로딩 중...</span></div>';
+
+      const courseId = requireSelectedCourse();
+      if (!courseId) return;
+
+      try {
+        const r = await API.getSubmissionStatus(adminPw, assignmentId, courseId);
+        if (!r.success) { detail.innerHTML = `<div class="alert alert-error">${r.error}</div>`; return; }
+
+        const showProfEval = r.professorEval === 'Y';
+
+        let html = `
+          <div class="card">
+            <div class="card-title">제출 현황 - ${assignmentId}</div>
+            <div class="grid-3" style="margin-bottom:16px;">
+              <div class="stat-card">
+                <div class="stat-value">${r.submittedCount}</div>
+                <div class="stat-label">제출</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${r.totalStudents - r.submittedCount}</div>
+                <div class="stat-label">미제출</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${r.totalStudents}</div>
+                <div class="stat-label">전체</div>
+              </div>
+            </div>`;
+
+        // 미제출자 학번
+        if (r.notSubmittedIds.length > 0) {
+          html += `
+            <div style="margin-bottom:16px;">
+              <strong style="font-size:0.875rem;color:var(--danger);">미제출 (${r.notSubmittedIds.length}명):</strong>
+              <span style="font-size:0.8125rem;color:var(--gray-600);">${r.notSubmittedIds.join(', ')}</span>
+            </div>`;
+        }
+
+        // 제출 학생 목록 (2명씩)
+        if (r.submittedStudents.length > 0) {
+          html += `<div style="margin-bottom:8px;"><strong style="font-size:0.875rem;">제출 학생 (${r.submittedCount}명)</strong></div>`;
+          html += '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+          r.submittedStudents.forEach((s, idx) => {
+            const hasProfEval = s.professorScore !== undefined && s.professorScore !== null && s.professorScore !== '';
+            const evalBadge = hasProfEval ? `<span style="color:var(--success);font-size:0.75rem;margin-left:4px;">✅${s.professorScore}점</span>` : '';
+            html += `
+              <div style="flex:0 0 calc(50% - 4px);display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--gray-50);border-radius:8px;font-size:0.8125rem;">
+                <span style="font-weight:600;">${escapeHtml(s.studentId)}</span>
+                <span style="color:var(--gray-500);">${escapeHtml(s.name)}</span>
+                ${evalBadge}
+                <span style="margin-left:auto;display:flex;gap:4px;">
+                  <a href="${escapeHtml(s.link)}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;font-size:0.75rem;padding:2px 8px;">제출 과제</a>
+                  ${showProfEval ? `<button class="btn btn-primary btn-sm" style="font-size:0.75rem;padding:2px 8px;" onclick="openProfEvalInline('${assignmentId}','${escapeHtml(s.studentId)}',${idx})">평가</button>` : ''}
+                </span>
+              </div>`;
+          });
+          html += '</div>';
+
+          // 인라인 교수 평가 영역
+          if (showProfEval) {
+            html += `<div id="prof-eval-inline" style="display:none;margin-top:16px;padding:16px;background:#f0f7ff;border-radius:8px;border:1px solid #dbeafe;"></div>`;
+          }
+        }
+
+        html += `<button class="btn btn-secondary" onclick="document.getElementById('detail-area').style.display='none'" style="margin-top:16px;">닫기</button></div>`;
+        detail.innerHTML = html;
+
+        // 제출 현황 데이터를 전역에 임시 저장
+        window._submissionStatusData = r;
+      } catch (err) {
+        detail.innerHTML = `<div class="alert alert-error">오류: ${err.message}</div>`;
+      }
+    }
+
+    function openProfEvalInline(assignmentId, studentId, idx) {
+      const r = window._submissionStatusData;
+      if (!r) return;
+
+      const s = r.submittedStudents[idx];
+      const container = document.getElementById('prof-eval-inline');
+      if (!container) return;
+
+      container.style.display = '';
+      container.innerHTML = `
+        <div style="margin-bottom:8px;font-weight:600;">${escapeHtml(s.studentId)} ${escapeHtml(s.name)} 평가</div>
+        ${r.criteria ? `<div style="font-size:0.8125rem;color:var(--gray-600);margin-bottom:12px;white-space:pre-wrap;background:white;padding:8px 12px;border-radius:6px;border:1px solid var(--gray-200);"><strong>채점기준:</strong>\n${escapeHtml(r.criteria)}</div>` : ''}
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="form-group" style="flex:0 0 120px;margin-bottom:0;">
+            <label style="font-size:0.8125rem;">점수 (${r.minScore}~${r.maxScore})</label>
+            <input type="number" id="inline-prof-score" value="${s.professorScore !== undefined && s.professorScore !== null ? s.professorScore : ''}" min="${r.minScore}" max="${r.maxScore}" style="font-size:0.875rem;">
+          </div>
+          <div class="form-group" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label style="font-size:0.8125rem;">서술평</label>
+            <input type="text" id="inline-prof-comment" value="${escapeHtml(s.professorComment || '')}" placeholder="교수 코멘트" style="font-size:0.875rem;">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="saveInlineProfEval('${assignmentId}','${studentId}',${idx})" id="btn-inline-save">저장</button>
+          <span id="inline-prof-status" style="font-size:0.8125rem;"></span>
+        </div>
+      `;
+      container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    async function saveInlineProfEval(assignmentId, studentId, idx) {
+      const score = document.getElementById('inline-prof-score').value;
+      const comment = document.getElementById('inline-prof-comment').value;
+      const status = document.getElementById('inline-prof-status');
+      const btn = document.getElementById('btn-inline-save');
+
+      if (score === '') { alert('점수를 입력해주세요.'); return; }
+
+      const courseId = requireSelectedCourse();
+      if (!courseId) return;
+
+      btn.disabled = true; btn.textContent = '저장 중...';
+
+      try {
+        const r = await API.submitProfessorEval(adminPw, assignmentId, studentId, Number(score), comment, courseId);
+        if (r.success) {
+          status.textContent = '✅ 저장됨';
+          status.style.color = 'var(--success)';
+          // 로컬 데이터 업데이트
+          if (window._submissionStatusData && window._submissionStatusData.submittedStudents[idx]) {
+            window._submissionStatusData.submittedStudents[idx].professorScore = Number(score);
+            window._submissionStatusData.submittedStudents[idx].professorComment = comment;
+          }
+          // 제출 현황 새로고침
+          setTimeout(() => showSubmissionStatus(assignmentId), 800);
+        } else {
+          status.textContent = '❌ ' + r.error;
+          status.style.color = 'var(--danger)';
+        }
+      } catch (err) {
+        status.textContent = '❌ 오류';
+        status.style.color = 'var(--danger)';
+      } finally {
+        btn.disabled = false; btn.textContent = '저장';
       }
     }
 
