@@ -97,8 +97,15 @@ function getCourseSpreadsheetId(courseId) {
   return null;
 }
 
+function requireCourseId(courseId) {
+  if (!courseId || String(courseId).trim() === '') {
+    throw new Error('courseId가 필요합니다. 과목을 선택해주세요.');
+  }
+  return String(courseId).trim();
+}
+
 function getCourseSpreadsheet(courseId) {
-  if (!courseId) return getSpreadsheet(); // fallback to master
+  courseId = requireCourseId(courseId);
   if (_ssCache[courseId]) return _ssCache[courseId];
   const ssId = getCourseSpreadsheetId(courseId);
   if (!ssId) throw new Error('과목을 찾을 수 없습니다: ' + courseId);
@@ -256,7 +263,7 @@ function doGet(e) {
 // ============================================================
 function handleCheckStudent(payload) {
   const studentId = String(payload.studentId).trim();
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
   const sheet = getCourseSheet(courseId, '학생_마스터');
   if (!sheet) return { success: false, error: '학생_마스터 시트를 찾을 수 없습니다.' };
 
@@ -277,7 +284,7 @@ function handleCheckStudent(payload) {
 function handleRegisterPassword(payload) {
   const studentId = String(payload.studentId).trim();
   const password = payload.password;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   if (!password || password.length < 4) {
     return { success: false, error: '비밀번호는 최소 4자 이상이어야 합니다.' };
@@ -306,7 +313,7 @@ function handleRegisterPassword(payload) {
 function handleLogin(payload) {
   const studentId = String(payload.studentId).trim();
   const password = payload.password;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   // 잠금 확인
   const lockStatus = checkLoginLock(studentId);
@@ -428,7 +435,7 @@ function handleChangeAdminPassword(payload) {
 // ============================================================
 function handleGetMyAssignments(payload) {
   const studentId = String(payload.studentId).trim();
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
   const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
@@ -482,7 +489,7 @@ function handleGetMyAssignments(payload) {
 
 function handleGetEvaluationTargets(payload) {
   const studentId = String(payload.studentId).trim();
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
   const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
@@ -532,7 +539,7 @@ function handleGetEvaluationTargets(payload) {
 
 function handleSubmitEvaluation(payload) {
   const studentId = String(payload.studentId).trim();
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
   const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
@@ -619,7 +626,7 @@ function handleSubmitEvaluation(payload) {
 
 function handleGetMyResults(payload) {
   const studentId = String(payload.studentId).trim();
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
   const authResult = verifyStudent(studentId, payload.password, courseId);
   if (!authResult.success) return authResult;
 
@@ -695,7 +702,7 @@ function handleGetMyResults(payload) {
 function handleCreateAssignment(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const assignSheet = getOrCreateCourseSheet(courseId, '과제_목록', [
     '과제ID', '과제명', '과제설명', '제출마감일시', '평가마감일시',
@@ -755,7 +762,7 @@ function handleStartEvaluation(payload) {
 
   const assignmentId = payload.assignmentId;
   const evalDeadline = payload.evalDeadline;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -833,7 +840,7 @@ function handleEndEvaluation(payload) {
   if (!adminAuth.success) return adminAuth;
 
   const assignmentId = payload.assignmentId;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -949,7 +956,7 @@ function handleEndEvaluation(payload) {
 function handleGetEvalStatus(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const assignmentId = payload.assignmentId;
   const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
@@ -989,7 +996,7 @@ function handleGetEvalStatus(payload) {
 function handleSubmitProfessorEval(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const assignmentId = payload.assignmentId;
   const studentId = String(payload.studentId).trim();
@@ -1013,7 +1020,7 @@ function handleSubmitProfessorEval(payload) {
 function handleFinalizeAssignment(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const assignmentId = payload.assignmentId;
 
@@ -1076,7 +1083,7 @@ function handleFinalizeAssignment(payload) {
 function handleGetAllResults(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const assignmentId = payload.assignmentId;
   const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
@@ -1111,7 +1118,7 @@ function handleGetAllResults(payload) {
 function handleRegisterStudents(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const students = payload.students; // [{studentId, name}]
   const sheet = getOrCreateCourseSheet(courseId, '학생_마스터', ['학번', '이름', '비밀번호']);
@@ -1148,7 +1155,7 @@ function handleRegisterStudents(payload) {
 function handleGetAssignmentsList(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const sheet = getCourseSheet(courseId, '과제_목록');
   if (!sheet) return { success: true, assignments: [] };
@@ -1175,7 +1182,7 @@ function handleGetAssignmentsList(payload) {
 function handleResetPassword(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const studentId = String(payload.studentId).trim();
   const sheet = getCourseSheet(courseId, '학생_마스터');
@@ -1194,7 +1201,7 @@ function handleResetPassword(payload) {
 function handleRemoveStudent(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const studentId = String(payload.studentId).trim();
   if (!studentId) {
@@ -1218,7 +1225,7 @@ function handleRemoveStudent(payload) {
 function handleGetStudentsList(payload) {
   const adminAuth = verifyAdmin(payload.adminPassword);
   if (!adminAuth.success) return adminAuth;
-  const courseId = payload.courseId;
+  const courseId = requireCourseId(payload.courseId);
 
   const sheet = getCourseSheet(courseId, '학생_마스터');
   if (!sheet) return { success: true, students: [] };
