@@ -12,7 +12,18 @@ const API = (() => {
   const BASE_URL = 'https://script.google.com/macros/s/AKfycbyEQjSa6YwEjI7FPOHSOU6ShOey7V_aZR95-Pyc8TRoDo3uvvWvuvLhtRL2xBOdUCSZ/exec';
   const TIMEOUT_MS = 30000;
 
+  // courseId가 필요하지 않은 액션 목록
+  const NO_COURSE_ACTIONS = new Set([
+    'get_active_courses', 'admin_login', 'change_admin_password',
+    'create_course', 'get_courses_list', 'delete_course', 'restore_course'
+  ]);
+
   async function call(payload) {
+    // courseId가 필요한 액션인데 빠져있으면 에러
+    if (!NO_COURSE_ACTIONS.has(payload.action) && !payload.courseId) {
+      throw new Error('과목이 선택되지 않았습니다. 과목을 먼저 선택해주세요.');
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
