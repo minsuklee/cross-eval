@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>교수 대시보드 - 상호평가</title>
-  <link rel="stylesheet" href="../css/style.css?v=20260216c">
+  <link rel="stylesheet" href="../css/style.css?v=20260216d">
 </head>
 <body>
   <div class="app-container">
@@ -152,8 +152,8 @@
     </div>
   </div>
 
-  <script src="../js/api.js?v=20260216c"></script>
-  <script src="../js/auth.js?v=20260216c"></script>
+  <script src="../js/api.js?v=20260216d"></script>
+  <script src="../js/auth.js?v=20260216d"></script>
   <script>
     if (!Auth.requireAdmin()) throw new Error('Redirect');
 
@@ -249,6 +249,13 @@
       return `<span class="badge ${m[status]||'badge-waiting'}">${status}</span>`;
     }
 
+    function formatKST(dateStr) {
+      if (!dateStr) return '-';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return String(dateStr);
+      return d.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
     // ─── 과제 목록 ───
     async function loadAssignments() {
       const loading = document.getElementById('assignments-loading');
@@ -297,12 +304,21 @@
               break;
           }
 
+          // v2.3: 교수 평가 현황 표시
+          let profEvalInfo = '';
+          if (a.professorEval === 'Y' && a.profEvalTotal !== undefined) {
+            const allDone = a.profEvalCompleted >= a.profEvalTotal;
+            const color = allDone ? 'var(--success)' : '#d97706';
+            const icon = allDone ? '✅' : '⏳';
+            profEvalInfo = `<span style="font-size:0.75rem;color:${color};font-weight:600;margin-left:8px;">${icon} 교수평가 ${a.profEvalCompleted}/${a.profEvalTotal}명</span>`;
+          }
+
           html += `
             <div class="card">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
                 <div>
-                  <h3 style="font-size:1.05rem;margin-bottom:4px;">${escapeHtml(a.name)}</h3>
-                  <p style="font-size:0.8125rem;color:var(--gray-500);">${a.assignmentId} | 제출마감: ${a.submitDeadline || '-'} | 평가마감: ${a.evalDeadline || '-'}</p>
+                  <h3 style="font-size:1.05rem;margin-bottom:4px;">${escapeHtml(a.name)}${profEvalInfo}</h3>
+                  <p style="font-size:0.8125rem;color:var(--gray-500);">${a.assignmentId} | 제출마감: ${formatKST(a.submitDeadline)} | 평가마감: ${formatKST(a.evalDeadline)}</p>
                 </div>
                 ${getStatusBadge(a.status)}
               </div>
@@ -587,16 +603,43 @@
       }
     }
 
-    // ─── 평가 종료 ───
+    // ─── 평가 종료 (v2.3: 교수평가 체크 + 마감전 경고) ───
     async function endEvaluation(assignmentId) {
-      if (!confirm(`"${assignmentId}" 평가를 종료하고 결과를 집계하시겠습니까?`)) return;
-
       const courseId = requireSelectedCourse();
       if (!courseId) return;
 
+      const a = currentAssignments.find(x => x.assignmentId === assignmentId);
+
+      // v2.3: 교수 평가 미완료 체크 (프론트엔드 사전 검증)
+      if (a && a.professorEval === 'Y' && a.profEvalTotal !== undefined) {
+        if (a.profEvalCompleted < a.profEvalTotal) {
+          const missing = a.profEvalTotal - a.profEvalCompleted;
+          showAlert(`교수 평가가 완료되지 않은 학생이 ${missing}명 있습니다. [제출 현황]에서 모든 학생에 대한 교수 평가를 완료한 후 종료해주세요.`, 'error');
+          return;
+        }
+      }
+
+      // v2.3: 평가마감일시 이전 경고
+      if (a && a.evalDeadline) {
+        const deadline = new Date(a.evalDeadline);
+        if (!isNaN(deadline.getTime()) && new Date() < deadline) {
+          if (!confirm(`평가 마감일시(${formatKST(a.evalDeadline)})가 아직 지나지 않았습니다.\n그래도 평가를 종료하시겠습니까?`)) return;
+        }
+      }
+
+      if (!confirm(`"${a ? a.name : assignmentId}" 평가를 종료하고 결과를 집계하시겠습니까?`)) return;
+
       try {
         const r = await API.endEvaluation(adminPw, assignmentId, courseId);
-        if (!r.success) { showAlert(r.error, 'error'); return; }
+        if (!r.success) {
+          // 백엔드에서도 교수평가 미완료 체크 (이중 검증)
+          if (r.missingProfEval) {
+            showAlert(r.error, 'error');
+          } else {
+            showAlert(r.error, 'error');
+          }
+          return;
+        }
 
         let msg = `평가 종료 및 집계 완료 (${r.totalStudents}명).`;
         if (r.incompleteEvaluations && r.incompleteEvaluations.length > 0) {
