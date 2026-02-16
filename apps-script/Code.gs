@@ -236,6 +236,12 @@ function doPost(e) {
       case 'delete_course': result = handleDeleteCourse(payload); break;
       case 'restore_course': result = handleRestoreCourse(payload); break;
       case 'get_active_courses': result = handleGetActiveCourses(payload); break;
+      case 'cleanup_master': {
+        const auth = verifyAdmin(payload.adminPassword);
+        if (!auth.success) { result = auth; break; }
+        result = { success: true, message: cleanupMasterSheet() };
+        break;
+      }
 
       default:
         result = { success: false, error: '알 수 없는 action: ' + action };
@@ -1576,33 +1582,44 @@ function assignEvaluators(students) {
 // 초기 설정 (최초 1회 실행)
 // ============================================================
 function initializeSystem() {
-  const ss = getSpreadsheet();
+  // 마스터 스프레드시트에는 _config과 과목_목록만 생성
+  // ※ 학생_마스터, 과제_목록 등 과목별 데이터는 과목별 스프레드시트에만 존재
 
   // _config 시트 (자동 생성)
   ensureConfigSheet();
 
   // 기본 설정
   if (!getConfig('admin_password')) {
-    setConfig('admin_password', hashPassword('prof2026!'));
-  }
-  if (!getConfig('course_name')) {
-    setConfig('course_name', '소프트웨어공학개론');
-  }
-  if (!getConfig('semester')) {
-    setConfig('semester', '2026-1');
+    // 초기 비밀번호는 빈 값 → minsuk615로 로그인 허용
+    setConfig('admin_password', '');
   }
   if (!getConfig('test_mode')) {
     setConfig('test_mode', 'false');
   }
 
-  // 학생_마스터 시트
-  getOrCreateSheet('학생_마스터', ['학번', '이름', '비밀번호']);
+  // 과목_목록 시트 (자동 생성)
+  ensureCourseListSheet();
 
-  // 과제_목록 시트
-  getOrCreateSheet('과제_목록', [
-    '과제ID', '과제명', '과제설명', '제출마감일시', '평가마감일시',
-    '상태', 'Google_Form_URL', '채점기준_설명', '최소점수', '최대점수'
-  ]);
+  return '시스템 초기화 완료 (마스터: _config + 과목_목록만)';
+}
 
-  return '시스템 초기화 완료';
+// ============================================================
+// 마스터 시트 정리 (1회 수동 실행용)
+// 마스터에 잘못 생성된 학생_마스터, 과제_목록 등 과목 데이터 시트를 삭제
+// ============================================================
+function cleanupMasterSheet() {
+  const ss = getSpreadsheet();
+  const keepSheets = new Set(['_config', '과목_목록']);
+  const sheets = ss.getSheets();
+  const deleted = [];
+
+  for (let i = 0; i < sheets.length; i++) {
+    const name = sheets[i].getName();
+    if (!keepSheets.has(name)) {
+      deleted.push(name);
+      ss.deleteSheet(sheets[i]);
+    }
+  }
+
+  return '삭제된 시트: ' + (deleted.length > 0 ? deleted.join(', ') : '없음');
 }

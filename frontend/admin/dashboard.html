@@ -161,13 +161,13 @@
     const SELECTED_COURSE_KEY = 'cross_eval_selected_course';
 
     function getSelectedCourse() {
-      const raw = sessionStorage.getItem(SELECTED_COURSE_KEY);
+      const raw = localStorage.getItem(SELECTED_COURSE_KEY);
       if (!raw) return null;
       try { return JSON.parse(raw); } catch { return null; }
     }
 
     function setSelectedCourse(courseId, courseName) {
-      sessionStorage.setItem(SELECTED_COURSE_KEY, JSON.stringify({ courseId, courseName }));
+      localStorage.setItem(SELECTED_COURSE_KEY, JSON.stringify({ courseId, courseName }));
       updateCurrentCourseBadge();
     }
 
@@ -782,7 +782,7 @@
           // 삭제된 과목이 현재 선택된 과목이면 선택 해제
           const selected = getSelectedCourse();
           if (selected && selected.courseId === courseId) {
-            sessionStorage.removeItem(SELECTED_COURSE_KEY);
+            localStorage.removeItem(SELECTED_COURSE_KEY);
             updateCurrentCourseBadge();
           }
           loadCourses();
