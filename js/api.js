@@ -12,7 +12,18 @@ const API = (() => {
   const BASE_URL = 'https://script.google.com/macros/s/AKfycbyEQjSa6YwEjI7FPOHSOU6ShOey7V_aZR95-Pyc8TRoDo3uvvWvuvLhtRL2xBOdUCSZ/exec';
   const TIMEOUT_MS = 30000;
 
+  // courseId가 필요하지 않은 액션 목록
+  const NO_COURSE_ACTIONS = new Set([
+    'get_active_courses', 'admin_login', 'change_admin_password',
+    'create_course', 'get_courses_list', 'delete_course', 'restore_course'
+  ]);
+
   async function call(payload) {
+    // courseId가 필요한 액션인데 빠져있으면 에러
+    if (!NO_COURSE_ACTIONS.has(payload.action) && !payload.courseId) {
+      throw new Error('과목이 선택되지 않았습니다. 과목을 먼저 선택해주세요.');
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -45,17 +56,22 @@ const API = (() => {
     }
   }
 
+  // ─── 과목 (인증 불필요) ───
+  function getActiveCourses() {
+    return call({ action: 'get_active_courses' });
+  }
+
   // ─── 인증 ───
-  function checkStudent(studentId) {
-    return call({ action: 'check_student', studentId });
+  function checkStudent(studentId, courseId) {
+    return call({ action: 'check_student', studentId, courseId });
   }
 
-  function registerPassword(studentId, password) {
-    return call({ action: 'register_password', studentId, password });
+  function registerPassword(studentId, password, courseId) {
+    return call({ action: 'register_password', studentId, password, courseId });
   }
 
-  function login(studentId, password) {
-    return call({ action: 'login', studentId, password });
+  function login(studentId, password, courseId) {
+    return call({ action: 'login', studentId, password, courseId });
   }
 
   function adminLogin(password) {
@@ -67,72 +83,72 @@ const API = (() => {
   }
 
   // ─── 학생용 ───
-  function getMyAssignments(studentId, password) {
-    return call({ action: 'get_my_assignments', studentId, password });
+  function getMyAssignments(studentId, password, courseId) {
+    return call({ action: 'get_my_assignments', studentId, password, courseId });
   }
 
-  function getEvaluationTargets(studentId, password, assignmentId) {
-    return call({ action: 'get_evaluation_targets', studentId, password, assignmentId });
+  function getEvaluationTargets(studentId, password, assignmentId, courseId) {
+    return call({ action: 'get_evaluation_targets', studentId, password, assignmentId, courseId });
   }
 
-  function submitEvaluation(studentId, password, assignmentId, targetStudentId, score, comment) {
+  function submitEvaluation(studentId, password, assignmentId, targetStudentId, score, comment, courseId) {
     return call({
       action: 'submit_evaluation',
-      studentId, password, assignmentId, targetStudentId, score, comment
+      studentId, password, assignmentId, targetStudentId, score, comment, courseId
     });
   }
 
-  function getMyResults(studentId, password) {
-    return call({ action: 'get_my_results', studentId, password });
+  function getMyResults(studentId, password, courseId) {
+    return call({ action: 'get_my_results', studentId, password, courseId });
   }
 
   // ─── 교수용 ───
-  function createAssignment(adminPassword, data) {
-    return call({ action: 'create_assignment', adminPassword, ...data });
+  function createAssignment(adminPassword, data, courseId) {
+    return call({ action: 'create_assignment', adminPassword, courseId, ...data });
   }
 
-  function startEvaluation(adminPassword, assignmentId, evalDeadline) {
-    return call({ action: 'start_evaluation', adminPassword, assignmentId, evalDeadline });
+  function startEvaluation(adminPassword, assignmentId, evalDeadline, courseId) {
+    return call({ action: 'start_evaluation', adminPassword, assignmentId, evalDeadline, courseId });
   }
 
-  function endEvaluation(adminPassword, assignmentId) {
-    return call({ action: 'end_evaluation', adminPassword, assignmentId });
+  function endEvaluation(adminPassword, assignmentId, courseId) {
+    return call({ action: 'end_evaluation', adminPassword, assignmentId, courseId });
   }
 
-  function getEvalStatus(adminPassword, assignmentId) {
-    return call({ action: 'get_eval_status', adminPassword, assignmentId });
+  function getEvalStatus(adminPassword, assignmentId, courseId) {
+    return call({ action: 'get_eval_status', adminPassword, assignmentId, courseId });
   }
 
-  function submitProfessorEval(adminPassword, assignmentId, studentId, score, comment) {
-    return call({ action: 'submit_professor_eval', adminPassword, assignmentId, studentId, score, comment });
+  function submitProfessorEval(adminPassword, assignmentId, studentId, score, comment, courseId) {
+    return call({ action: 'submit_professor_eval', adminPassword, assignmentId, studentId, score, comment, courseId });
   }
 
-  function finalizeAssignment(adminPassword, assignmentId, force) {
-    return call({ action: 'finalize_assignment', adminPassword, assignmentId, force });
+  function finalizeAssignment(adminPassword, assignmentId, force, courseId) {
+    return call({ action: 'finalize_assignment', adminPassword, assignmentId, force, courseId });
   }
 
-  function getAllResults(adminPassword, assignmentId) {
-    return call({ action: 'get_all_results', adminPassword, assignmentId });
+  function getAllResults(adminPassword, assignmentId, courseId) {
+    return call({ action: 'get_all_results', adminPassword, assignmentId, courseId });
   }
 
-  function registerStudents(adminPassword, students) {
-    return call({ action: 'register_students', adminPassword, students });
+  function registerStudents(adminPassword, students, courseId) {
+    return call({ action: 'register_students', adminPassword, students, courseId });
   }
 
-  function getAssignmentsList(adminPassword) {
-    return call({ action: 'get_assignments_list', adminPassword });
+  function getAssignmentsList(adminPassword, courseId) {
+    return call({ action: 'get_assignments_list', adminPassword, courseId });
   }
 
-  function resetPassword(adminPassword, studentId) {
-    return call({ action: 'reset_password', adminPassword, studentId });
+  function resetPassword(adminPassword, studentId, courseId) {
+    return call({ action: 'reset_password', adminPassword, studentId, courseId });
   }
 
-  function getStudentsList(adminPassword) {
-    return call({ action: 'get_students_list', adminPassword });
+  function getStudentsList(adminPassword, courseId) {
+    return call({ action: 'get_students_list', adminPassword, courseId });
   }
 
-  function removeStudent(adminPassword, studentId) {
-    return call({ action: 'remove_student', adminPassword, studentId });
+  function removeStudent(adminPassword, studentId, courseId) {
+    return call({ action: 'remove_student', adminPassword, studentId, courseId });
   }
 
   function createCourse(adminPassword, courseName, year, semester) {
@@ -152,6 +168,7 @@ const API = (() => {
   }
 
   return {
+    getActiveCourses,
     checkStudent, registerPassword, login, adminLogin, changeAdminPassword,
     getMyAssignments, getEvaluationTargets, submitEvaluation, getMyResults,
     createAssignment, startEvaluation, endEvaluation, getEvalStatus,

@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>상호평가 시스템 - 로그인</title>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=20260216">
 </head>
 <body>
   <div class="login-container">
@@ -21,12 +24,26 @@
 
       <!-- 학생 로그인 -->
       <div id="student-form">
-        <div id="step-check">
+        <div id="step-course">
+          <div class="form-group">
+            <label for="course-select">과목 선택</label>
+            <select id="course-select">
+              <option value="">과목을 선택하세요</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-block" onclick="selectCourse()" id="btn-select-course">다음</button>
+          <div id="course-loading" style="display:none;text-align:center;margin-top:12px;">
+            <div class="spinner" style="margin:0 auto;"></div>
+          </div>
+        </div>
+
+        <div id="step-check" style="display:none;">
           <div class="form-group">
             <label for="student-id">학번</label>
             <input type="text" id="student-id" placeholder="학번 입력" inputmode="numeric" autocomplete="off">
           </div>
           <button class="btn btn-primary btn-block" onclick="checkStudentId()" id="btn-check">다음</button>
+          <button class="btn btn-secondary btn-block" onclick="backToCourse()" style="margin-top:8px;">뒤로</button>
         </div>
 
         <div id="step-password" style="display:none;">
@@ -72,8 +89,8 @@
     </div>
   </div>
 
-  <script src="js/api.js"></script>
-  <script src="js/auth.js"></script>
+  <script src="js/api.js?v=20260216"></script>
+  <script src="js/auth.js?v=20260216"></script>
   <script>
     // 이미 로그인 상태라면 리다이렉트
     if (Auth.isStudent()) window.location.href = 'student/dashboard.html';
@@ -81,6 +98,51 @@
 
     let currentStudentId = '';
     let isNewUser = false;
+    let selectedCourseId = '';
+    let selectedCourseName = '';
+
+    // 페이지 로드 시 활성 과목 목록 가져오기
+    (async function loadCourses() {
+      const loadingEl = document.getElementById('course-loading');
+      const selectEl = document.getElementById('course-select');
+      loadingEl.style.display = '';
+      try {
+        const r = await API.getActiveCourses();
+        if (r.success && r.courses && r.courses.length > 0) {
+          r.courses.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.courseId;
+            opt.textContent = c.courseName + ' (' + c.year + '-' + c.semester + ')';
+            opt.dataset.name = c.courseName;
+            selectEl.appendChild(opt);
+          });
+        } else {
+          selectEl.innerHTML = '<option value="">등록된 과목이 없습니다</option>';
+        }
+      } catch (err) {
+        selectEl.innerHTML = '<option value="">과목 로딩 실패</option>';
+      } finally {
+        loadingEl.style.display = 'none';
+      }
+    })();
+
+    function selectCourse() {
+      const sel = document.getElementById('course-select');
+      if (!sel.value) { showAlert('과목을 선택해주세요.', 'error'); return; }
+      selectedCourseId = sel.value;
+      selectedCourseName = sel.options[sel.selectedIndex].dataset.name || sel.options[sel.selectedIndex].textContent;
+      clearAlert();
+      document.getElementById('step-course').style.display = 'none';
+      document.getElementById('step-check').style.display = '';
+      document.getElementById('student-id').focus();
+    }
+
+    function backToCourse() {
+      document.getElementById('step-check').style.display = 'none';
+      document.getElementById('step-course').style.display = '';
+      document.getElementById('student-id').value = '';
+      clearAlert();
+    }
 
     function switchTab(tab) {
       document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
@@ -120,7 +182,7 @@
       clearAlert();
       setLoading('btn-check', true);
       try {
-        const r = await API.checkStudent(sid);
+        const r = await API.checkStudent(sid, selectedCourseId);
         if (!r.success || !r.exists) {
           showAlert('등록되지 않은 학번입니다. 교수에게 문의하세요.', 'error');
           return;
@@ -155,6 +217,7 @@
     function backToCheck() {
       document.getElementById('step-check').style.display = '';
       document.getElementById('step-password').style.display = 'none';
+      document.getElementById('step-course').style.display = 'none';
       document.getElementById('student-pw').value = '';
       document.getElementById('student-pw-confirm').value = '';
       clearAlert();
@@ -173,7 +236,7 @@
 
         setLoading('btn-login', true);
         try {
-          const r = await API.registerPassword(currentStudentId, pw);
+          const r = await API.registerPassword(currentStudentId, pw, selectedCourseId);
           if (!r.success) { showAlert(r.error, 'error'); return; }
 
           // 비밀번호 설정 후 바로 로그인
@@ -182,7 +245,9 @@
             studentId: currentStudentId,
             password: pw,
             name: r.name,
-            department: r.department
+            department: r.department,
+            courseId: selectedCourseId,
+            courseName: selectedCourseName
           });
           window.location.href = 'student/dashboard.html';
         } catch (err) {
@@ -193,7 +258,7 @@
       } else {
         setLoading('btn-login', true);
         try {
-          const r = await API.login(currentStudentId, pw);
+          const r = await API.login(currentStudentId, pw, selectedCourseId);
           if (!r.success) {
             showAlert(r.error, 'error');
             return;
@@ -203,7 +268,9 @@
             studentId: r.studentId,
             password: pw,
             name: r.name,
-            department: r.department
+            department: r.department,
+            courseId: selectedCourseId,
+            courseName: selectedCourseName
           });
           window.location.href = 'student/dashboard.html';
         } catch (err) {
