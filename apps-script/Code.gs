@@ -643,20 +643,21 @@ function handleGetEvaluationTargets(payload) {
   const data = evalSheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === studentId) {
+      // 블라인드 평가: 실제 이름/학번 대신 익명 라벨만 반환
       return {
         success: true,
         targets: [
           {
-            targetStudentId: String(data[i][2]),
-            targetName: data[i][3],
+            targetIndex: 0,
+            targetLabel: '학생 1',
             submissionLink: data[i][4],
             score: data[i][5] !== '' ? data[i][5] : null,
             comment: data[i][6] !== '' ? data[i][6] : null,
             completedAt: data[i][7] !== '' ? data[i][7] : null
           },
           {
-            targetStudentId: String(data[i][8]),
-            targetName: data[i][9],
+            targetIndex: 1,
+            targetLabel: '학생 2',
             submissionLink: data[i][10],
             score: data[i][11] !== '' ? data[i][11] : null,
             comment: data[i][12] !== '' ? data[i][12] : null,
@@ -679,7 +680,9 @@ function handleSubmitEvaluation(payload) {
   if (!authResult.success) return authResult;
 
   const assignmentId = payload.assignmentId;
-  const targetStudentId = String(payload.targetStudentId).trim();
+  // 블라인드 평가: targetIndex (0 또는 1) 사용 권장, targetStudentId는 하위호환
+  const targetIndex = payload.targetIndex !== undefined ? Number(payload.targetIndex) : null;
+  const targetStudentId = payload.targetStudentId ? String(payload.targetStudentId).trim() : null;
   const score = payload.score;
   const comment = payload.comment;
 
@@ -715,11 +718,6 @@ function handleSubmitEvaluation(payload) {
     return { success: false, error: '서술평은 최소 20자 이상이어야 합니다.' };
   }
 
-  // 자기 자신 평가 방지
-  if (studentId === targetStudentId) {
-    return { success: false, error: '자기 자신을 평가할 수 없습니다.' };
-  }
-
   // 평가 배정 확인 및 기록
   const evalSheet = getCourseSheet(courseId, assignmentId + '_평가배정');
   if (!evalSheet) return { success: false, error: '평가 배정 시트를 찾을 수 없습니다.' };
@@ -732,20 +730,24 @@ function handleSubmitEvaluation(payload) {
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]).trim() === studentId) {
         const now = new Date().toISOString();
-        if (String(data[i][2]).trim() === targetStudentId) {
+        // targetIndex 기반 (블라인드) 또는 targetStudentId 기반 (하위호환)
+        var matchTarget1 = (targetIndex === 0) || (targetStudentId && String(data[i][2]).trim() === targetStudentId);
+        var matchTarget2 = (targetIndex === 1) || (targetStudentId && String(data[i][8]).trim() === targetStudentId);
+
+        if (matchTarget1) {
           // 피평가자 1
           evalSheet.getRange(i + 1, 6).setValue(numScore);
           evalSheet.getRange(i + 1, 7).setValue(comment.trim());
           evalSheet.getRange(i + 1, 8).setValue(now);
           lock.releaseLock();
-          return { success: true, message: '평가가 저장되었습니다.', targetIndex: 1 };
-        } else if (String(data[i][8]).trim() === targetStudentId) {
+          return { success: true, message: '평가가 저장되었습니다.', targetIndex: 0 };
+        } else if (matchTarget2) {
           // 피평가자 2
           evalSheet.getRange(i + 1, 12).setValue(numScore);
           evalSheet.getRange(i + 1, 13).setValue(comment.trim());
           evalSheet.getRange(i + 1, 14).setValue(now);
           lock.releaseLock();
-          return { success: true, message: '평가가 저장되었습니다.', targetIndex: 2 };
+          return { success: true, message: '평가가 저장되었습니다.', targetIndex: 1 };
         }
         lock.releaseLock();
         return { success: false, error: '해당 학생은 귀하의 평가 대상이 아닙니다.' };
