@@ -227,6 +227,7 @@ function doPost(e) {
       case 'submit_professor_eval': result = handleSubmitProfessorEval(payload); break;
       case 'finalize_assignment': result = handleFinalizeAssignment(payload); break;
       case 'get_all_results': result = handleGetAllResults(payload); break;
+      case 'get_submission_status': result = handleGetSubmissionStatus(payload); break;
       case 'register_students': result = handleRegisterStudents(payload); break;
       case 'get_assignments_list': result = handleGetAssignmentsList(payload); break;
       case 'reset_password': result = handleResetPassword(payload); break;
@@ -549,27 +550,6 @@ function handleSubmitAssignment(payload) {
     }
   }
 
-  // URL 접근 가능 여부 확인
-  try {
-    var response = UrlFetchApp.fetch(link, {
-      method: 'get',
-      followRedirects: true,
-      muteHttpExceptions: true
-    });
-    var code = response.getResponseCode();
-    if (code >= 400) {
-      return {
-        success: false,
-        error: '제출한 URL에 접근할 수 없습니다 (HTTP ' + code + '). 공유 설정을 확인해주세요.'
-      };
-    }
-  } catch (e) {
-    return {
-      success: false,
-      error: 'URL에 접근할 수 없습니다: ' + e.message + '\n링크가 올바른지, 공유 설정이 되어있는지 확인해주세요.'
-    };
-  }
-
   // 학생 이름 가져오기
   var studentName = '';
   var studentSheet = getCourseSheet(courseId, '학생_마스터');
@@ -861,7 +841,7 @@ function handleCreateAssignment(payload) {
 
   const assignSheet = getOrCreateCourseSheet(courseId, '과제_목록', [
     '과제ID', '과제명', '과제설명', '제출마감일시', '평가마감일시',
-    '상태', 'Google_Form_URL', '채점기준_설명', '최소점수', '최대점수'
+    '상태', 'Google_Form_URL', '채점기준_설명', '최소점수', '최대점수', '교수평가여부'
   ]);
 
   // 다음 과제 ID 결정
@@ -880,7 +860,8 @@ function handleCreateAssignment(payload) {
     '', // Google Form URL (사용 안 함)
     payload.criteria || '',
     payload.minScore || 0,
-    payload.maxScore || 100
+    payload.maxScore || 100,
+    payload.professorEval ? 'Y' : 'N'
   ]);
 
   // 관련 시트 생성
@@ -1087,6 +1068,26 @@ function handleEndEvaluation(payload) {
       resultRows.push(row);
     }
 
+    // 기존 교수 평가 데이터 병합 (_교수평가 시트에서)
+    var profEvalSheet = getCourseSheet(courseId, assignmentId + '_교수평가');
+    if (profEvalSheet) {
+      var profEvalData = profEvalSheet.getDataRange().getValues();
+      var profEvalMap = {};
+      for (var pe = 1; pe < profEvalData.length; pe++) {
+        profEvalMap[String(profEvalData[pe][0]).trim()] = {
+          score: profEvalData[pe][1],
+          comment: profEvalData[pe][2]
+        };
+      }
+      for (var ri = 0; ri < resultRows.length; ri++) {
+        var rSid = String(resultRows[ri][0]).trim();
+        if (profEvalMap[rSid]) {
+          resultRows[ri][19] = profEvalMap[rSid].score;
+          resultRows[ri][20] = profEvalMap[rSid].comment;
+        }
+      }
+    }
+
     if (resultRows.length > 0) {
       resultSheet.getRange(2, 1, resultRows.length, 21).setValues(resultRows);
     }
@@ -1158,18 +1159,40 @@ function handleSubmitProfessorEval(payload) {
   const score = Number(payload.score);
   const comment = payload.comment || '';
 
-  const resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
-  if (!resultSheet) return { success: false, error: '결과 시트를 찾을 수 없습니다.' };
-
-  const data = resultSheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === studentId) {
-      resultSheet.getRange(i + 1, 20).setValue(score);
-      resultSheet.getRange(i + 1, 21).setValue(comment);
-      return { success: true, message: studentId + ' 교수 평가 저장 완료.' };
+  // 1. _결과 시트가 있으면 거기에 저장 (상호평가 종료 후)
+  var resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
+  if (resultSheet) {
+    var data = resultSheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === studentId) {
+        resultSheet.getRange(i + 1, 20).setValue(score);
+        resultSheet.getRange(i + 1, 21).setValue(comment);
+        // _교수평가 시트에도 동기화
+        saveProfessorEvalToSheet(courseId, assignmentId, studentId, score, comment);
+        return { success: true, message: studentId + ' 교수 평가 저장 완료.' };
+      }
     }
   }
-  return { success: false, error: '해당 학생을 결과 시트에서 찾을 수 없습니다.' };
+
+  // 2. _결과 시트가 없거나 해당 학생이 없으면 _교수평가 시트에 저장
+  saveProfessorEvalToSheet(courseId, assignmentId, studentId, score, comment);
+  return { success: true, message: studentId + ' 교수 평가 저장 완료.' };
+}
+
+function saveProfessorEvalToSheet(courseId, assignmentId, studentId, score, comment) {
+  var sheet = getOrCreateCourseSheet(courseId, assignmentId + '_교수평가', ['학번', '점수', '서술평', '평가시각']);
+  var data = sheet.getDataRange().getValues();
+  // 기존 평가가 있으면 업데이트
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === studentId) {
+      sheet.getRange(i + 1, 2).setValue(score);
+      sheet.getRange(i + 1, 3).setValue(comment);
+      sheet.getRange(i + 1, 4).setValue(new Date().toISOString());
+      return;
+    }
+  }
+  // 없으면 새 행 추가
+  sheet.appendRow([studentId, score, comment, new Date().toISOString()]);
 }
 
 function handleFinalizeAssignment(payload) {
@@ -1233,6 +1256,104 @@ function handleFinalizeAssignment(payload) {
   updateAssignmentStatus(assignmentId, '확정', courseId);
 
   return { success: true, message: assignmentId + ' 확정 완료. 학생에게 결과가 공개됩니다.' };
+}
+
+function handleGetSubmissionStatus(payload) {
+  const adminAuth = verifyAdmin(payload.adminPassword);
+  if (!adminAuth.success) return adminAuth;
+  const courseId = requireCourseId(payload.courseId);
+
+  const assignmentId = payload.assignmentId;
+
+  // 과제 정보 가져오기
+  const assignInfo = getAssignmentInfo(assignmentId, courseId);
+  if (!assignInfo) return { success: false, error: '과제를 찾을 수 없습니다.' };
+
+  // 전체 학생 목록
+  const studentSheet = getCourseSheet(courseId, '학생_마스터');
+  if (!studentSheet) return { success: false, error: '학생 목록을 찾을 수 없습니다.' };
+  const studentData = studentSheet.getDataRange().getValues();
+  const allStudents = {};
+  for (var i = 1; i < studentData.length; i++) {
+    var sid = String(studentData[i][0]).trim();
+    if (sid) allStudents[sid] = { studentId: sid, name: studentData[i][1] };
+  }
+
+  // 제출 현황
+  var submitSheet = getCourseSheet(courseId, assignmentId + '_제출');
+  var submitted = {};
+  if (submitSheet) {
+    var submitData = submitSheet.getDataRange().getValues();
+    for (var j = 1; j < submitData.length; j++) {
+      if (submitData[j][6] === 'Y') {
+        var ssid = String(submitData[j][2]).trim();
+        submitted[ssid] = {
+          studentId: ssid,
+          name: submitData[j][3],
+          link: submitData[j][5],
+          timestamp: submitData[j][0]
+        };
+      }
+    }
+  }
+
+  // 교수 기존 평가 확인 (_교수평가 시트 우선, 없으면 _결과 시트)
+  var professorEvals = {};
+  var profEvalSheet = getCourseSheet(courseId, assignmentId + '_교수평가');
+  if (profEvalSheet) {
+    var profData = profEvalSheet.getDataRange().getValues();
+    for (var p = 1; p < profData.length; p++) {
+      var psid = String(profData[p][0]).trim();
+      if (profData[p][1] !== '' && profData[p][1] !== null && profData[p][1] !== undefined) {
+        professorEvals[psid] = { score: profData[p][1], comment: profData[p][2] || '' };
+      }
+    }
+  }
+  var resultSheet = getCourseSheet(courseId, assignmentId + '_결과');
+  if (resultSheet) {
+    var resultData = resultSheet.getDataRange().getValues();
+    for (var k = 1; k < resultData.length; k++) {
+      var rsid = String(resultData[k][0]).trim();
+      if (!professorEvals[rsid] && resultData[k][19] !== '' && resultData[k][19] !== null && resultData[k][19] !== undefined) {
+        professorEvals[rsid] = { score: resultData[k][19], comment: resultData[k][20] || '' };
+      }
+    }
+  }
+
+  // 미제출자 / 제출자 분리
+  var notSubmitted = [];
+  var submittedList = [];
+  var allIds = Object.keys(allStudents).sort();
+  for (var m = 0; m < allIds.length; m++) {
+    var id = allIds[m];
+    if (submitted[id]) {
+      var entry = {
+        studentId: id,
+        name: submitted[id].name || allStudents[id].name,
+        link: submitted[id].link,
+        timestamp: submitted[id].timestamp
+      };
+      if (professorEvals[id]) {
+        entry.professorScore = professorEvals[id].score;
+        entry.professorComment = professorEvals[id].comment;
+      }
+      submittedList.push(entry);
+    } else {
+      notSubmitted.push(id);
+    }
+  }
+
+  return {
+    success: true,
+    totalStudents: allIds.length,
+    submittedCount: submittedList.length,
+    notSubmittedIds: notSubmitted,
+    submittedStudents: submittedList,
+    criteria: assignInfo.criteria || '',
+    minScore: assignInfo.minScore || 0,
+    maxScore: assignInfo.maxScore || 100,
+    professorEval: assignInfo.professorEval || 'N'
+  };
 }
 
 function handleGetAllResults(payload) {
@@ -1328,7 +1449,8 @@ function handleGetAssignmentsList(payload) {
       formUrl: data[i][6],
       criteria: data[i][7],
       minScore: data[i][8],
-      maxScore: data[i][9]
+      maxScore: data[i][9],
+      professorEval: data[i][10] || 'N'
     });
   }
   return { success: true, assignments: assignments };
@@ -1615,7 +1737,8 @@ function getAssignmentInfo(assignmentId, courseId) {
         formUrl: data[i][6],
         criteria: data[i][7],
         minScore: data[i][8],
-        maxScore: data[i][9]
+        maxScore: data[i][9],
+        professorEval: data[i][10] || 'N'
       };
     }
   }
